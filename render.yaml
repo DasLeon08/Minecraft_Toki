@@ -1,0 +1,37 @@
+# Render Blueprint: ein Web Service liefert den Client UND den Spielserver aus.
+# In Render: «New» → «Blueprint» → dieses Repository wählen.
+services:
+  - type: web
+    name: blockcraft
+    runtime: node
+    plan: free
+    branch: main
+    autoDeploy: true
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: node apps/server/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      # Client-Variablen werden beim Build eingebacken (öffentlich!)
+      - key: VITE_SERVER_URL
+        value: ''
+      - key: VITE_DEBUG
+        value: 'false'
+      - key: VITE_DEFAULT_RENDER_DISTANCE
+        value: '8'
+      - key: VITE_MAX_RENDER_DISTANCE
+        value: '16'
+      - key: VITE_DAY_LENGTH_SECONDS
+        value: '1200'
+      # Server
+      - key: ALLOWED_ORIGINS
+        value: ''
+      - key: MAX_ROOMS
+        value: '3'
+      - key: MAX_PLAYERS_PER_ROOM
+        value: '4'
+      - key: MAX_VIEW_DISTANCE
+        value: '6'
+      - key: LOG_LEVEL
+        value: info

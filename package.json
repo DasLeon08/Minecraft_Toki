@@ -1,0 +1,37 @@
+{
+  "name": "blockcraft",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Blockcraft – eigenständiges Voxel-Sandbox-Spiel für den Browser",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @blockcraft/client dev",
+    "dev:server": "pnpm --filter @blockcraft/server dev",
+    "build": "pnpm --filter @blockcraft/client build && pnpm --filter @blockcraft/server build",
+    "start": "node apps/server/dist/index.js",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "perf": "vitest run packages/shared/test/perf.test.ts",
+    "e2e": "playwright test",
+    "textures:gallery": "pnpm --filter @blockcraft/texturegen gallery"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^22.18.0",
+    "eslint": "^9.39.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^5.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

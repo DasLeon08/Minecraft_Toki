@@ -1,0 +1,17 @@
+{
+  "name": "@blockcraft/texturegen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Exportiert die prozeduralen Texturen als PNG-Galerie (zur Prüfung der Pixel-Art)",
+  "scripts": {
+    "gallery": "esbuild src/gallery.ts --bundle --platform=node --format=esm --outfile=out/gallery.mjs --log-level=warning && node out/gallery.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@blockcraft/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.10"
+  }
+}

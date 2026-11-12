@@ -1,0 +1,20 @@
+{
+  "name": "@blockcraft/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Render-Dienst: liefert den Client aus und betreibt den Spielserver (WebSocket)",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.js --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "dev": "pnpm build && node --env-file-if-exists=../../.env dist/index.js",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@blockcraft/shared": "workspace:*",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.25.10"
+  }
+}

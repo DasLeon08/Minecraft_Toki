@@ -1,0 +1,23 @@
+name: Backup
+
+# Spiegelt `main` auf den Branch `backup`: bei jedem Release-Tag, wöchentlich und manuell.
+on:
+  push:
+    tags: ['v*']
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: main → backup
+        run: git push --force origin refs/remotes/origin/main:refs/heads/backup

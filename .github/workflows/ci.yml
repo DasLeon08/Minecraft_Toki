@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'claude/**', 'feature/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit-Tests + Performance-Budgets
+        run: pnpm test
+      - name: Build (Client + Server)
+        run: pnpm build
+      - name: Bundle-Grösse prüfen (≤ 1 MB gzip)
+        run: |
+          size=$(cat apps/client/dist/assets/*.js | gzip -9 | wc -c)
+          echo "JS gzip: $size Bytes"
+          test "$size" -lt 1048576
+      - name: Playwright installieren
+        run: pnpm exec playwright install --with-deps chromium
+      - name: E2E-Tests
+        run: pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-ergebnisse
+          path: test-results/
+          if-no-files-found: ignore

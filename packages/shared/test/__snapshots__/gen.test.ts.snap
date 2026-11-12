@@ -1,0 +1,9 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Weltgenerierung > Golden Hash bleibt stabil (Änderung = bewusste Formatänderung) 1`] = `
+[
+  4197659578,
+  2251368974,
+  1034128964,
+]
+`;
