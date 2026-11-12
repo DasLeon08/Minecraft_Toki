@@ -1,12 +1,15 @@
 /**
  * Lokaler Spieler: Eingaben → Physik (20 TPS), Kamera (interpoliert),
- * Abbauen/Platzieren per Raycast.
+ * Abbauen mit Fortschritt, Platzieren, Benutzen, Essen per Raycast.
  */
 import * as THREE from 'three';
 import {
   AABB,
-  AIR,
+  breakTicks,
+  FURNACE,
+  FURNACE_LIT,
   getBlock,
+  getItem,
   PLAYER_HALF_WIDTH,
   PlayerBody,
   raycast,
@@ -14,13 +17,17 @@ import {
   REACH_SURVIVAL,
   type ClientMessage,
   type MoveInput,
+  type PhysicsEvents,
+  type PlayerSnapshot,
   type RayHit,
   type World,
 } from '@blockcraft/shared';
 import type { Input } from '../input/Input';
 
-const BREAK_DELAY = 0.25;
+const CREATIVE_BREAK_DELAY = 0.25;
+const BREAK_COOLDOWN = 0.25;
 const PLACE_DELAY = 0.2;
+const EAT_SECONDS = 1.6;
 const DOUBLE_TAP = 0.3;
 
 export class PlayerController {
@@ -29,15 +36,24 @@ export class PlayerController {
   pitch = 0;
   creative = true;
   target: RayHit | null = null;
+  /** Abbau-Fortschritt 0–1 (für das Riss-Overlay). */
+  breakProgress = 0;
+  /** Ess-Fortschritt 0–1. */
+  eatProgress = 0;
+  /** Letzter Snapshot aus der Simulation (Inventar, Leben …). */
+  state: PlayerSnapshot | null = null;
+  selected = 0;
   private eye = 1.62;
   private breakCooldown = 0;
   private placeCooldown = 0;
+  private breaking: { x: number; y: number; z: number } | null = null;
   private lastJumpTap = -10;
   private lastForwardTap = -10;
   private sprintToggle = false;
   private clock = 0;
   private seq = 0;
   private bobPhase = 0;
+  private lastEvents: PhysicsEvents = { landedFrom: 0, jumped: false };
 
   constructor(
     private readonly world: World,
@@ -45,29 +61,52 @@ export class PlayerController {
     private readonly send: (msg: ClientMessage) => void,
   ) {}
 
-  /** Ein Simulationstick (50 ms). */
-  tick(): void {
+  /** Ein Simulationstick (50 ms). Gibt den Zustand für die Simulation zurück. */
+  tick(dead: boolean): void {
     const inp = this.input;
-    const forward = (inp.isDown('forward') ? 1 : 0) - (inp.isDown('back') ? 1 : 0);
-    const strafe = (inp.isDown('right') ? 1 : 0) - (inp.isDown('left') ? 1 : 0);
+    const active = !dead;
+    const forward = active ? (inp.isDown('forward') ? 1 : 0) - (inp.isDown('back') ? 1 : 0) : 0;
+    const strafe = active ? (inp.isDown('right') ? 1 : 0) - (inp.isDown('left') ? 1 : 0) : 0;
     if (forward <= 0) this.sprintToggle = false;
     const move: MoveInput = {
       forward,
       strafe,
-      jump: inp.isDown('jump'),
-      sneak: inp.isDown('sneak'),
-      sprint: inp.isDown('sprint') || this.sprintToggle,
+      jump: active && inp.isDown('jump'),
+      sneak: active && inp.isDown('sneak'),
+      sprint: active && (inp.isDown('sprint') || this.sprintToggle),
       yaw: this.yaw,
     };
     this.body.canFly = this.creative;
     if (!this.creative) this.body.flying = false;
-    this.body.tick(this.world, move);
+    this.lastEvents = this.body.tick(this.world, move);
     const speed = Math.hypot(this.body.vx, this.body.vz);
     if (this.body.onGround && speed > 0.01) this.bobPhase += speed * 2.2;
+    const b = this.body;
+    this.send({
+      t: 'playerState',
+      x: b.x,
+      y: b.y,
+      z: b.z,
+      yaw: this.yaw,
+      pitch: this.pitch,
+      inWater: b.inWater,
+      eyesInWater: b.eyesInWater,
+      sprinting: b.sprinting,
+      jumped: this.lastEvents.jumped,
+      landedFrom: this.creative ? 0 : this.lastEvents.landedFrom,
+    });
+  }
+
+  get lastPhysics(): PhysicsEvents {
+    return this.lastEvents;
+  }
+
+  held(): { id: number; count: number } | null {
+    return this.state?.main[this.selected] ?? null;
   }
 
   /** Pro Frame: Maus, Doppeltipp-Gesten, Interaktion. */
-  frame(dt: number, camera: THREE.PerspectiveCamera, alpha: number, sensitivity: number, invertY: boolean): void {
+  frame(dt: number, camera: THREE.PerspectiveCamera, alpha: number, sensitivity: number, invertY: boolean, canInteract: boolean): void {
     this.clock += dt;
     const inp = this.input;
     if (inp.locked) {
@@ -95,47 +134,88 @@ export class PlayerController {
     const x = b.prevX + (b.x - b.prevX) * alpha;
     const y = b.prevY + (b.y - b.prevY) * alpha;
     const z = b.prevZ + (b.z - b.prevZ) * alpha;
-    const targetEye = b.eyeHeight;
-    this.eye += (targetEye - this.eye) * Math.min(1, dt * 14);
+    this.eye += (b.eyeHeight - this.eye) * Math.min(1, dt * 14);
     const bob = b.flying ? 0 : Math.sin(this.bobPhase) * 0.035;
     camera.position.set(x, y + this.eye + Math.abs(bob), z);
     camera.rotation.set(this.pitch, this.yaw, 0);
 
-    // Ziel bestimmen
     const dir = this.lookDir();
     const reach = this.creative ? REACH_CREATIVE : REACH_SURVIVAL;
     this.target = raycast(this.world, camera.position.x, camera.position.y, camera.position.z, dir.x, dir.y, dir.z, reach);
 
     this.breakCooldown = Math.max(0, this.breakCooldown - dt);
     this.placeCooldown = Math.max(0, this.placeCooldown - dt);
-    if (!inp.locked) return;
+    if (!inp.locked || !canInteract) {
+      this.resetBreak();
+      this.eatProgress = 0;
+      return;
+    }
 
-    if (this.target) {
-      if (inp.clicked.has(0) || (inp.buttons.has(0) && this.breakCooldown <= 0)) {
-        this.breakBlock(this.target);
-        this.breakCooldown = BREAK_DELAY;
+    // Abbauen
+    const t = this.target;
+    if (inp.buttons.has(0) && t) this.updateBreaking(t, dt, inp.clicked.has(0));
+    else this.resetBreak();
+
+    // Rechtsklick: Benutzen, Essen oder Platzieren
+    const held = this.held();
+    const food = held ? getItem(held.id)?.food : undefined;
+    const sneaking = inp.isDown('sneak');
+    if (inp.buttons.has(2)) {
+      if (t && getBlock(t.id).interactive && !sneaking) {
+        if (inp.clicked.has(2)) this.send({ t: 'useBlock', x: t.x, y: t.y, z: t.z });
+        this.eatProgress = 0;
+      } else if (food && (this.creative || (this.state?.hunger ?? 20) < 20)) {
+        this.eatProgress += dt / EAT_SECONDS;
+        if (this.eatProgress >= 1) {
+          this.send({ t: 'eat' });
+          this.eatProgress = 0;
+        }
+      } else if (t && (inp.clicked.has(2) || this.placeCooldown <= 0)) {
+        if (this.placeBlock(t)) this.placeCooldown = PLACE_DELAY;
+        else if (inp.clicked.has(2)) this.placeCooldown = PLACE_DELAY;
       }
-      if (inp.clicked.has(2) || (inp.buttons.has(2) && this.placeCooldown <= 0)) {
-        if (this.placeBlock(this.target)) this.placeCooldown = PLACE_DELAY;
+    } else this.eatProgress = 0;
+
+    // Mittelklick: Block wählen
+    if (inp.clicked.has(1) && t) this.send({ t: 'pickBlock', id: t.id === FURNACE_LIT ? FURNACE : t.id });
+    // Item fallen lassen
+    if (inp.wasPressed('drop')) this.send({ t: 'drop', all: inp.isDown('sprint') });
+  }
+
+  private resetBreak(): void {
+    this.breaking = null;
+    this.breakProgress = 0;
+  }
+
+  private updateBreaking(t: RayHit, dt: number, fresh: boolean): void {
+    if (this.creative) {
+      if (fresh || this.breakCooldown <= 0) {
+        this.send({ t: 'breakBlock', seq: ++this.seq, x: t.x, y: t.y, z: t.z });
+        this.breakCooldown = CREATIVE_BREAK_DELAY;
       }
+      return;
+    }
+    const b = this.breaking;
+    if (!b || b.x !== t.x || b.y !== t.y || b.z !== t.z) {
+      if (this.breakCooldown > 0 && !fresh) return;
+      this.breaking = { x: t.x, y: t.y, z: t.z };
+      this.breakProgress = 0;
+      this.send({ t: 'startBreak', x: t.x, y: t.y, z: t.z });
+    }
+    const ticks = breakTicks(t.id, this.held()?.id ?? null);
+    if (!Number.isFinite(ticks)) return;
+    this.breakProgress += ticks <= 0 ? 1 : (dt * 20) / ticks;
+    if (this.breakProgress >= 1) {
+      this.send({ t: 'breakBlock', seq: ++this.seq, x: t.x, y: t.y, z: t.z });
+      this.resetBreak();
+      this.breakCooldown = BREAK_COOLDOWN;
     }
   }
 
-  /** Gewählter Block in der Hotbar (wird vom Spiel gesetzt). */
-  heldBlock = AIR;
-
-  pickTarget(): number | null {
-    return this.target ? this.target.id : null;
-  }
-
-  private breakBlock(hit: RayHit): void {
-    this.send({ t: 'setBlock', seq: ++this.seq, x: hit.x, y: hit.y, z: hit.z, id: AIR });
-  }
-
   private placeBlock(hit: RayHit): boolean {
-    const id = this.heldBlock;
-    if (id === AIR) return false;
-    // Ersetzbare Blöcke (Gras) direkt ersetzen, sonst an der Fläche anbauen
+    const held = this.held();
+    const id = held ? getItem(held.id)?.block : undefined;
+    if (id === undefined) return false;
     let x = hit.x;
     let y = hit.y;
     let z = hit.z;
@@ -144,13 +224,12 @@ export class PlayerController {
       y += hit.ny;
       z += hit.nz;
     }
-    const current = getBlock(this.world.getBlock(x, y, z));
-    if (!current.replaceable) return false;
+    if (!getBlock(this.world.getBlock(x, y, z)).replaceable) return false;
     if (getBlock(id).solid) {
       const box = new AABB(x, y, z, x + 1, y + 1, z + 1);
       if (box.intersects(this.body.box())) return false;
     }
-    this.send({ t: 'setBlock', seq: ++this.seq, x, y, z, id });
+    this.send({ t: 'placeBlock', seq: ++this.seq, x, y, z, id });
     return true;
   }
 

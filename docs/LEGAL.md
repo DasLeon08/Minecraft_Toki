@@ -16,7 +16,9 @@
 | Logo | CSS-Schriftzug, keine Bilddatei |
 | Favicon | eigenes SVG (`apps/client/public/favicon.svg`) |
 | Schrift | Systemschriften des Geräts (kein eingebetteter Font); eigener Pixel-Font geplant |
-| Sounds/Musik | noch keine (Phase 2: prozedurale Synthese) |
+| Sounds | zur Laufzeit synthetisiert (WebAudio: Rauschen, Filter, Hüllkurven) in `apps/client/src/audio/Sound.ts` – keine Audiodateien |
+| Musik | generativ zur Laufzeit (eigene pentatonische Motive und Akkordfolgen) |
+| Item-/Werkzeug-/Rüstungs-Sprites, HUD-Symbole | eigene ASCII-Pixelmasken in `textures/paint.ts` bzw. `apps/client/src/ui/icons.ts` |
 | Noise | eigene Simplex-Implementierung nach öffentlich beschriebenem Verfahren |
 
 ## Abhängigkeiten (Lizenzen)

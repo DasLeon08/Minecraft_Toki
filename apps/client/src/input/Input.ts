@@ -1,4 +1,4 @@
-import { KEYBINDINGS, type Action } from './keybindings';
+import { keybindings, type Action } from './keybindings';
 
 /**
  * Sammelt Tastatur- und Mauseingaben. Mausbewegung wird nur bei aktivem
@@ -70,12 +70,12 @@ export class Input {
   }
 
   isDown(action: Action): boolean {
-    return KEYBINDINGS[action].some((c) => this.down.has(c));
+    return keybindings.value[action].some((c) => this.down.has(c));
   }
 
   /** Wurde die Taste seit dem letzten `endFrame` gedrückt? */
   wasPressed(action: Action): boolean {
-    return KEYBINDINGS[action].some((c) => this.pressedOnce.has(c));
+    return keybindings.value[action].some((c) => this.pressedOnce.has(c));
   }
 
   wasCodePressed(code: string): boolean {

@@ -21,7 +21,7 @@ void main() {
   vShade = dirShade * (0.5 + 0.5 * ao);
   vSky = aLight.y / 15.0;
   vBlock = aLight.z / 15.0;
-  vUv = aUvl.xy;
+  vUv = aUvl.xy / 16.0;
   vLayer = aUvl.z;
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   vFogDepth = length(mv.xyz);

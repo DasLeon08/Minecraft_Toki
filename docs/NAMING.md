@@ -21,14 +21,31 @@ String-IDs haben den Namespace `bc:` (z. B. `bc:leuchtkristall`).
 | `bc:schneeboden` | Verschneiter Boden | Oberflächenblock |
 | `bc:lehm` | Lehm | Unterwasserboden |
 
+## Im Spiel (Phase 2)
+
+| ID | Name | Rolle |
+|---|---|---|
+| `bc:werktisch` | Werktisch | 3×3-Crafting |
+| `bc:schmelze` | Schmelze | Ofen (brennt mit Licht 13) |
+| `bc:truhe` | Truhe | 27 Plätze |
+| `bc:fackel` | Fackel | Lichtquelle (14) |
+| `bc:lumiterz` / `bc:lumit` | Lumiterz / Lumit | seltenstes Erz (violett), Stufe 4 |
+| `bc:fichtenstamm` … | Fichte | Taiga-Baum |
+| `bc:sumpflaub` | Sumpflaub | Sumpf-Bäume |
+| `bc:beerenstrauch` / `bc:waldbeeren` | Beerenstrauch / Waldbeeren | Nahrung |
+| `bc:apfel` | Apfel | Nahrung (aus Eichenlaub) |
+| `bc:stock`, `bc:kohle`, `bc:eisenbarren` | Stock, Kohle, Eisenbarren | Material |
+| `bc:<stufe>_<werkzeug>` | z. B. Holzspitzhacke, Lumitschwert | Werkzeuge (holz/stein/eisen/lumit × spitzhacke/schaufel/axt/schwert) |
+| `bc:<material>_<teil>` | z. B. Eisenhelm, Lumitbrustpanzer | Rüstung (eisen/lumit × helm/brustpanzer/beinschutz/stiefel) |
+
+Werkzeuge sind bewusst senkrecht gezeichnet (eigene Form), Lumit ist violett.
+
 ## Geplant
 
 | Rolle | Name |
 |---|---|
 | Spielfigur | Wanderer |
-| seltenes Edelerz | Lumit |
 | vulkanisches Glas | Glutglas |
-| Werkbank / Ofen | Werktisch / Schmelze |
 | Logiksystem / Leitstaub | Glimmwerk / Glimmstaub |
 | Kolben | Stösser |
 | explodierender Mob | Zischling |

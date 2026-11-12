@@ -13,6 +13,10 @@ export interface Settings {
   renderScale: number;
   /** Texturstil: 1 = fein, 2 = pixelig, 4 = sehr pixelig. */
   textureStyle: PixelStyle;
+  /** Lautstärken in Prozent. */
+  volumeMaster: number;
+  volumeEffects: number;
+  volumeMusic: number;
 }
 
 const KEY = 'bc.settings.v1';
@@ -25,6 +29,9 @@ export const DEFAULT_SETTINGS: Settings = {
   showFps: false,
   renderScale: 1,
   textureStyle: 2,
+  volumeMaster: 80,
+  volumeEffects: 100,
+  volumeMusic: 50,
 };
 
 function load(): Settings {

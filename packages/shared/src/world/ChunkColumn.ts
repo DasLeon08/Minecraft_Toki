@@ -1,5 +1,6 @@
 import { COLUMN_VOLUME, SECTION_COUNT, SECTION_VOLUME, WORLD_HEIGHT } from '../constants';
 import { AIR } from '../registry/blocks';
+import type { BlockEntity } from '../sim/blockEntities';
 
 /** Lichtbyte: oberes Nibble = Sonnenlicht, unteres Nibble = Blocklicht. */
 export const FULL_SKY = 0xf0;
@@ -14,6 +15,8 @@ export class ChunkColumn {
   readonly light: (Uint8Array | null)[] = new Array(SECTION_COUNT).fill(null);
   /** Wurde seit dem letzten Speichern verändert (durch Spieleraktionen). */
   modified = false;
+  /** Block-Entities (Truhe, Schmelze), Schlüssel = Spaltenindex (y << 8 | z << 4 | x). */
+  readonly blockEntities = new Map<number, BlockEntity>();
 
   constructor(
     readonly cx: number,

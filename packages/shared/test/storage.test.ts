@@ -50,15 +50,28 @@ describe('Simulation', () => {
   it('validiert Blockänderungen und markiert Spalten als verändert', () => {
     const { world, light } = makeWorld(1, (_x, y) => (y === 0 ? BEDROCK : y < 60 ? STONE : y === 60 ? GRASS : AIR));
     const sim = new Sim({ world, light, time: 0, dayLengthTicks: 24000, mode: 'survival' });
+    const p = sim.addPlayer(1, 'creative');
+    p.x = 1;
+    p.y = 61;
+    p.z = 1;
     const events: string[] = [];
     sim.onEvent((e) => events.push(e.t));
+    // Direktes Setzen ist im Überlebensmodus nicht erlaubt
+    p.mode = 'survival';
+    sim.handle({ t: 'setBlock', seq: 0, x: 1, y: 61, z: 1, id: GLASS });
+    expect(world.getBlock(1, 61, 1)).toBe(AIR);
+    p.mode = 'creative';
     sim.handle({ t: 'setBlock', seq: 1, x: 1, y: 61, z: 1, id: GLASS });
     expect(world.getBlock(1, 61, 1)).toBe(GLASS);
     expect(world.getColumn(0, 0)!.modified).toBe(true);
-    // Urgestein im Survival unzerstörbar
-    sim.handle({ t: 'setBlock', seq: 2, x: 1, y: 0, z: 1, id: AIR });
+    // Urgestein ist im Überlebensmodus unzerstörbar
+    p.mode = 'survival';
+    p.y = 1;
+    sim.handle({ t: 'breakBlock', seq: 2, x: 1, y: 0, z: 1 });
     expect(world.getBlock(1, 0, 1)).toBe(BEDROCK);
     expect(events).toContain('rejected');
+    p.mode = 'creative';
+    p.y = 61;
     // Belegter Platz kann nicht überschrieben werden
     sim.handle({ t: 'setBlock', seq: 3, x: 1, y: 61, z: 1, id: STONE });
     expect(world.getBlock(1, 61, 1)).toBe(GLASS);
@@ -67,6 +80,10 @@ describe('Simulation', () => {
   it('Pflanzen brauchen Boden und fallen weg, wenn er abgebaut wird', () => {
     const { world, light } = makeWorld(1, (_x, y) => (y < 60 ? STONE : y === 60 ? GRASS : AIR));
     const sim = new Sim({ world, light, time: 0, dayLengthTicks: 24000, mode: 'creative' });
+    const p = sim.addPlayer(1, 'creative');
+    p.x = 2;
+    p.y = 61;
+    p.z = 4;
     sim.handle({ t: 'setBlock', seq: 1, x: 2, y: 61, z: 2, id: TALL_GRASS });
     expect(world.getBlock(2, 61, 2)).toBe(TALL_GRASS);
     sim.handle({ t: 'setBlock', seq: 2, x: 2, y: 60, z: 2, id: AIR });

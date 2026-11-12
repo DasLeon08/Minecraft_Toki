@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { BLOCKS, CATALOG_BLOCKS, GAME_NAME, GAME_VERSION, type GameMode } from '@blockcraft/shared';
+import { GAME_NAME, GAME_VERSION, MAX_AIR, type GameMode } from '@blockcraft/shared';
 import { benchMode, env } from '../config/env';
+import { ACTION_LABELS, conflicts, keybindings, keyLabel, resetBindings, setBinding, type Action } from '../input/keybindings';
 import { settings, updateSettings, DEFAULT_SETTINGS } from '../settings';
 import type { WorldMeta } from '../storage/WorldStore';
 import {
@@ -18,20 +19,21 @@ import {
   worlds,
   worldSizes,
 } from './controller';
-import { blockIcon } from './icons';
+import { hudIcon } from './icons';
+import { Hotbar, InventoryScreen } from './Inventory';
 import {
+  deathMessage,
   debugInfo,
+  eatProgress,
   errorText,
-  hotbar,
   loadingProgress,
   loadingText,
   notice,
+  playerState,
   pointerLocked,
   screen,
-  selectedSlot,
   settingsReturn,
   showDebug,
-  textureVersion,
   underwater,
 } from './state';
 
@@ -190,7 +192,7 @@ function WorldList() {
 function CreateWorld() {
   const [name, setName] = useState('Neue Welt');
   const [seed, setSeed] = useState(env.VITE_DEFAULT_SEED);
-  const [mode, setMode] = useState<GameMode>('creative');
+  const [mode, setMode] = useState<GameMode>('survival');
   return (
     <div class="screen panel-screen">
       <form
@@ -212,10 +214,10 @@ function CreateWorld() {
         <fieldset class="modes">
           <legend>Spielmodus</legend>
           <label class="radio">
-            <input type="radio" name="mode" checked={mode === 'creative'} onChange={() => setMode('creative')} /> Kreativ
+            <input type="radio" name="mode" checked={mode === 'survival'} onChange={() => setMode('survival')} /> Überleben
           </label>
-          <label class="radio disabled" title="Kommt in Phase 2 (Inventar, Crafting, Leben, Hunger)">
-            <input type="radio" name="mode" disabled /> Überleben <small>(Phase 2)</small>
+          <label class="radio">
+            <input type="radio" name="mode" checked={mode === 'creative'} onChange={() => setMode('creative')} /> Kreativ
           </label>
         </fieldset>
         <div class="row">
@@ -280,6 +282,9 @@ function SettingsScreen() {
           format={(v) => `${v} %`}
           onChange={(v) => updateSettings({ renderScale: v / 100 })}
         />
+        <Slider label="Lautstärke gesamt" value={s.volumeMaster} min={0} max={100} step={5} format={(v) => `${v} %`} onChange={(v) => updateSettings({ volumeMaster: v })} />
+        <Slider label="Effekte" value={s.volumeEffects} min={0} max={100} step={5} format={(v) => `${v} %`} onChange={(v) => updateSettings({ volumeEffects: v })} />
+        <Slider label="Musik" value={s.volumeMusic} min={0} max={100} step={5} format={(v) => `${v} %`} onChange={(v) => updateSettings({ volumeMusic: v })} />
         <fieldset class="modes">
           <legend>Texturstil</legend>
           {(
@@ -310,8 +315,9 @@ function SettingsScreen() {
           />
           Debug-Anzeige (F3) beim Start einblenden
         </label>
-        <p class="hint">Steuerung: WASD bewegen · Leertaste springen (2× = fliegen) · Shift schleichen · Strg oder 2× W sprinten · Linksklick abbauen · Rechtsklick platzieren · Mittelklick Block wählen · E Blockauswahl · F3 Debug · Esc Pause</p>
+        <p class="hint">Maus: Linksklick abbauen (halten) · Rechtsklick platzieren, benutzen oder essen (halten) · Mittelklick Block wählen · 1–9/Mausrad Hotbar · Esc Pause</p>
         <div class="row">
+          <Button onClick={() => (screen.value = 'keys')}>Tastenbelegung …</Button>
           <Button onClick={() => updateSettings({ ...DEFAULT_SETTINGS })}>Zurücksetzen</Button>
           <Button kind="primary" onClick={() => (screen.value = settingsReturn.value)}>
             Fertig
@@ -330,25 +336,6 @@ function LoadingScreen() {
         <div style={{ width: `${Math.round(loadingProgress.value * 100)}%` }} />
       </div>
       <p>{loadingText.value}</p>
-    </div>
-  );
-}
-
-function Hotbar() {
-  void textureVersion.value; // neu zeichnen nach Texturwechsel
-  const hb = hotbar.value;
-  const sel = selectedSlot.value;
-  return (
-    <div class="hotbar">
-      {hb.map((id, i) => (
-        <div key={i} class={`slot ${i === sel ? 'active' : ''}`} onClick={() => (selectedSlot.value = i)}>
-          <img src={blockIcon(id)} alt={BLOCKS[id].name} draggable={false} />
-          <span class="num">{i + 1}</span>
-        </div>
-      ))}
-      <div class="held-name" key={`${sel}-${hb[sel]}`}>
-        {BLOCKS[hb[sel]].name}
-      </div>
     </div>
   );
 }
@@ -384,12 +371,52 @@ function DebugOverlay() {
   );
 }
 
+function Stats() {
+  const ps = playerState.value;
+  if (!ps || ps.mode === 'creative') return null;
+  const row = (value: number, full: 'heart' | 'food' | 'armor', half: 'heartHalf' | null, empty: 'heartEmpty' | 'foodEmpty' | 'armorEmpty', reverse = false) => {
+    const icons = Array.from({ length: 10 }, (_, i) => {
+      const v = value - i * 2;
+      const name = v >= 2 ? full : v >= 1 && half ? half : v >= 1 ? full : empty;
+      return <img key={i} src={hudIcon(name)} alt="" />;
+    });
+    return <div class={`stat-row ${reverse ? 'reverse' : ''}`}>{reverse ? icons.reverse() : icons}</div>;
+  };
+  const bubbles = Math.ceil((Math.max(0, ps.air) / MAX_AIR) * 10);
+  return (
+    <div class="stats">
+      <div class="stats-left">
+        {ps.armorPoints > 0 && row(ps.armorPoints, 'armor', null, 'armorEmpty')}
+        {row(Math.ceil(ps.health), 'heart', 'heartHalf', 'heartEmpty')}
+      </div>
+      <div class="stats-right">
+        {ps.air < MAX_AIR && (
+          <div class="stat-row reverse">
+            {Array.from({ length: bubbles }, (_, i) => (
+              <img key={i} src={hudIcon('bubble')} alt="" />
+            ))}
+          </div>
+        )}
+        {row(ps.hunger, 'food', null, 'foodEmpty', true)}
+      </div>
+    </div>
+  );
+}
+
 function Hud() {
   const playing = screen.value === 'playing';
+  const ps = playerState.value;
   return (
     <div class="hud">
       {underwater.value && <div class="underwater" />}
       {playing && <div class="crosshair" />}
+      {playing && eatProgress.value > 0 && (
+        <div class="eat-bar">
+          <div style={{ width: `${Math.round(eatProgress.value * 100)}%` }} />
+        </div>
+      )}
+      {ps && ps.health < 6 && ps.mode === 'survival' && <div class="low-health" />}
+      <Stats />
       <Hotbar />
       {showDebug.value && <DebugOverlay />}
       {playing && !pointerLocked.value && !benchMode && (
@@ -418,6 +445,14 @@ function PauseMenu() {
           >
             Einstellungen
           </Button>
+          <Button
+            onClick={() => {
+              const g = currentGame();
+              if (g) g.setMode(g.mode === 'creative' ? 'survival' : 'creative');
+            }}
+          >
+            Spielmodus: {playerState.value?.mode === 'creative' ? 'Kreativ' : 'Überleben'}
+          </Button>
           <Button onClick={() => void quitGame(true)}>Speichern &amp; zum Menü</Button>
         </div>
       </div>
@@ -425,37 +460,67 @@ function PauseMenu() {
   );
 }
 
-function Inventory() {
-  void textureVersion.value;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.code === 'Escape') currentGame()?.closeInventory();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, []);
+function DeathScreen() {
   return (
-    <div class="screen overlay" onClick={(e) => e.target === e.currentTarget && currentGame()?.closeInventory()}>
+    <div class="screen overlay death">
+      <div class="panel">
+        <h2>Du bist gestorben</h2>
+        <p>{deathMessage.value}</p>
+        <p class="hint">Deine Items liegen dort, wo du gestorben bist.</p>
+        <div class="stack">
+          <Button kind="primary" onClick={() => currentGame()?.respawn()}>
+            Wiederbeleben
+          </Button>
+          <Button onClick={() => void quitGame(true)}>Zum Hauptmenü</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KeysScreen() {
+  const [waiting, setWaiting] = useState<{ action: Action; slot: 0 | 1 } | null>(null);
+  const kb = keybindings.value;
+  const bad = conflicts(kb);
+  useEffect(() => {
+    if (!waiting) return;
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code === 'Escape') setBinding(waiting.action, waiting.slot, null);
+      else setBinding(waiting.action, waiting.slot, e.code);
+      setWaiting(null);
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [waiting]);
+  return (
+    <div class="screen panel-screen">
       <div class="panel wide">
-        <h2>Blöcke</h2>
-        <p class="hint">Klicke einen Block, um ihn in den gewählten Hotbar-Platz ({selectedSlot.value + 1}) zu legen. E oder Esc schliesst.</p>
-        <div class="catalog">
-          {CATALOG_BLOCKS.map((id) => (
-            <button
-              key={id}
-              class="slot"
-              title={BLOCKS[id].name}
-              onClick={() => {
-                const hb = [...hotbar.value];
-                hb[selectedSlot.value] = id;
-                hotbar.value = hb;
-              }}
-            >
-              <img src={blockIcon(id)} alt={BLOCKS[id].name} draggable={false} />
-            </button>
+        <h2>Tastenbelegung</h2>
+        <div class="keys">
+          {(Object.keys(ACTION_LABELS) as Action[]).map((a) => (
+            <div class="key-row" key={a}>
+              <span>{ACTION_LABELS[a]}</span>
+              {([0, 1] as const).map((slot) => {
+                const code = kb[a][slot];
+                const active = waiting?.action === a && waiting.slot === slot;
+                return (
+                  <button key={slot} class={`btn key ${code && bad.has(code) ? 'conflict' : ''}`} onClick={() => setWaiting({ action: a, slot })}>
+                    {active ? 'Taste drücken …' : code ? keyLabel(code) : '–'}
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </div>
-        <Hotbar />
+        <p class="hint">Klicke ein Feld und drücke die neue Taste. Esc entfernt die Belegung. Rot = doppelt belegt.</p>
+        <div class="row">
+          <Button onClick={() => resetBindings()}>Standard wiederherstellen</Button>
+          <Button kind="primary" onClick={() => (screen.value = 'settings')}>
+            Fertig
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -483,12 +548,13 @@ export function App() {
     if (ref.current) setGameContainer(ref.current);
   }, []);
   const s = screen.value;
-  const inGame = s === 'playing' || s === 'paused' || s === 'inventory' || (s === 'settings' && settingsReturn.value === 'paused');
+  const inGame =
+    s === 'playing' || s === 'paused' || s === 'inventory' || s === 'dead' || ((s === 'settings' || s === 'keys') && settingsReturn.value === 'paused');
   return (
     <div class={`app ${inGame ? 'in-game' : ''}`}>
       <div ref={ref} class="game-container" />
       {!inGame && s !== 'loading' && <div class="backdrop" />}
-      {inGame && s !== 'settings' && <Hud />}
+      {inGame && s !== 'settings' && s !== 'keys' && <Hud />}
       {s === 'boot' && <div class="screen loading"><Logo /></div>}
       {s === 'menu' && <MainMenu />}
       {s === 'worlds' && <WorldList />}
@@ -496,7 +562,9 @@ export function App() {
       {s === 'settings' && <SettingsScreen />}
       {s === 'loading' && <LoadingScreen />}
       {s === 'paused' && <PauseMenu />}
-      {s === 'inventory' && <Inventory />}
+      {s === 'inventory' && <InventoryScreen />}
+      {s === 'dead' && <DeathScreen />}
+      {s === 'keys' && <KeysScreen />}
       {s === 'error' && <ErrorScreen />}
       <Notice />
     </div>

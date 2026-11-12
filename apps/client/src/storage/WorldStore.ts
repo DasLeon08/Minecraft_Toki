@@ -3,7 +3,7 @@
  * unveränderte entstehen beim Laden neu aus dem Seed.
  */
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import { columnKey, SAVE_FORMAT_VERSION, type GameMode } from '@blockcraft/shared';
+import { columnKey, GENERATOR_VERSION, SAVE_FORMAT_VERSION, type GameMode, type ItemStack, type PlayerPersist } from '@blockcraft/shared';
 
 export interface WorldMeta {
   id: string;
@@ -17,6 +17,8 @@ export interface WorldMeta {
   /** Spielzeit in Ticks (Tag-Nacht-Zyklus). */
   time: number;
   version: number;
+  /** Version der Weltgenerierung bei Erstellung. */
+  genVersion?: number;
 }
 
 export interface PlayerSave {
@@ -27,8 +29,24 @@ export interface PlayerSave {
   yaw: number;
   pitch: number;
   flying: boolean;
-  hotbar: number[];
+  /** Phase 1: nur Block-IDs der Hotbar (wird beim Laden migriert). */
+  hotbar?: number[];
   selected: number;
+  /** Ab Phase 2: Inventar, Leben, Hunger … */
+  state?: PlayerPersist;
+}
+
+export interface SavedItem {
+  item: ItemStack;
+  x: number;
+  y: number;
+  z: number;
+  age: number;
+}
+
+interface EntitiesRecord {
+  worldId: string;
+  items: SavedItem[];
 }
 
 interface ChunkRecord {
@@ -42,10 +60,11 @@ interface BcDB extends DBSchema {
   worlds: { key: string; value: WorldMeta };
   chunks: { key: [string, number, number]; value: ChunkRecord };
   players: { key: string; value: PlayerSave };
+  entities: { key: string; value: EntitiesRecord };
 }
 
 const DB_NAME = 'bc-worlds';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function chunkRange(worldId: string): IDBKeyRange {
   return IDBKeyRange.bound([worldId, -Infinity, -Infinity], [worldId, Infinity, Infinity]);
@@ -62,6 +81,7 @@ export class WorldStore {
           db.createObjectStore('chunks', { keyPath: ['worldId', 'cx', 'cz'] });
           db.createObjectStore('players', { keyPath: 'worldId' });
         }
+        if (oldVersion < 2) db.createObjectStore('entities', { keyPath: 'worldId' });
       },
       blocked() {
         console.warn('IndexedDB-Upgrade blockiert (andere Tabs offen?)');
@@ -100,17 +120,19 @@ export class WorldStore {
       lastPlayed: Date.now(),
       time: 1000,
       version: SAVE_FORMAT_VERSION,
+      genVersion: GENERATOR_VERSION,
     };
     await this.putWorld(meta);
     return meta;
   }
 
   async deleteWorld(id: string): Promise<void> {
-    const tx = this.db.transaction(['worlds', 'chunks', 'players'], 'readwrite');
+    const tx = this.db.transaction(['worlds', 'chunks', 'players', 'entities'], 'readwrite');
     await Promise.all([
       tx.objectStore('worlds').delete(id),
       tx.objectStore('chunks').delete(chunkRange(id)),
       tx.objectStore('players').delete(id),
+      tx.objectStore('entities').delete(id),
       tx.done,
     ]);
   }
@@ -141,6 +163,14 @@ export class WorldStore {
     await this.db.put('players', p);
   }
 
+  async loadItems(worldId: string): Promise<SavedItem[]> {
+    return (await this.db.get('entities', worldId))?.items ?? [];
+  }
+
+  async saveItems(worldId: string, items: SavedItem[]): Promise<void> {
+    await this.db.put('entities', { worldId, items });
+  }
+
   /** Gespeicherte Datenmenge einer Welt in Bytes. */
   async worldSize(worldId: string): Promise<number> {
     let size = 0;
@@ -161,8 +191,9 @@ export class WorldStore {
     const meta = await this.getWorld(worldId);
     if (!meta) throw new Error('Welt nicht gefunden');
     const player = await this.loadPlayer(worldId);
+    const items = await this.loadItems(worldId);
     const chunks = await this.db.getAll('chunks', chunkRange(worldId));
-    const json = new TextEncoder().encode(JSON.stringify({ meta, player }));
+    const json = new TextEncoder().encode(JSON.stringify({ meta, player, items }));
     const parts: BlobPart[] = [];
     const header = new Uint8Array(8);
     header.set([0x42, 0x43, 0x57, 0x31]); // BCW1
@@ -189,10 +220,13 @@ export class WorldStore {
     const parsed = JSON.parse(new TextDecoder().decode(buf.subarray(8, 8 + jsonLen))) as {
       meta: WorldMeta;
       player?: PlayerSave;
+      items?: SavedItem[];
     };
     const fresh = await this.createWorld(`${parsed.meta.name} (Import)`, parsed.meta.seed, parsed.meta.seedText, parsed.meta.mode);
     fresh.time = parsed.meta.time;
+    fresh.genVersion = parsed.meta.genVersion;
     await this.putWorld(fresh);
+    if (parsed.items?.length) await this.saveItems(fresh.id, parsed.items);
     const chunks: { cx: number; cz: number; data: Uint8Array }[] = [];
     let o = 8 + jsonLen;
     while (o + 12 <= buf.length) {

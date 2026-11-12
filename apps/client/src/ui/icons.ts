@@ -1,8 +1,19 @@
-/** Erzeugt isometrische Block-Icons (Data-URLs) aus der prozeduralen Pixel-Art. */
-import { BLOCKS, paintTexture, Shape, TEXTURE_NAMES, TEXTURE_SIZE, type TextureName } from '@blockcraft/shared';
+/**
+ * Icons aus der prozeduralen Pixel-Art: Blöcke isometrisch, Items flach,
+ * dazu HUD-Symbole (Herz, Hunger, Rüstung, Luft) als eigene Mini-Sprites.
+ */
+import { BLOCKS, getItem, paintTexture, Shape, TEXTURE_NAMES, TEXTURE_SIZE, type TextureName } from '@blockcraft/shared';
 
-const cache = new Map<number, string>();
+const urlCache = new Map<number, string>();
+const canvasCache = new Map<number, HTMLCanvasElement>();
 const texCache = new Map<string, HTMLCanvasElement>();
+
+/** Leert alle Caches (nach Wechsel des Texturstils). */
+export function clearIconCache(): void {
+  urlCache.clear();
+  canvasCache.clear();
+  texCache.clear();
+}
 
 function texCanvas(layer: number, brightness: number): HTMLCanvasElement {
   const key = `${layer}:${brightness}`;
@@ -24,35 +35,101 @@ function texCanvas(layer: number, brightness: number): HTMLCanvasElement {
   return c;
 }
 
-/** Leert den Icon-Cache (nach Wechsel des Texturstils). */
-export function clearIconCache(): void {
-  cache.clear();
-  texCache.clear();
-}
-
-export function blockIcon(id: number): string {
-  const hit = cache.get(id);
+/** Icon als Canvas (48×48). */
+export function itemIconCanvas(id: number): HTMLCanvasElement {
+  const hit = canvasCache.get(id);
   if (hit) return hit;
-  const def = BLOCKS[id];
   const size = 48;
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const ctx = c.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
   const k = 1 / TEXTURE_SIZE;
-  if (def.shape === Shape.Cross) {
-    ctx.drawImage(texCanvas(def.faces[0], 1), 4, 4, 40, 40);
+  const def = getItem(id);
+  const block = def?.block !== undefined ? BLOCKS[def.block] : undefined;
+  if (!def) {
+    // unbekannt: leer
+  } else if (!block || block.shape === Shape.Cross || block.shape === Shape.Torch) {
+    ctx.drawImage(texCanvas(def.icon, 1), 4, 4, 40, 40);
   } else {
-    const [side, , top] = [def.faces[0], def.faces[1], def.faces[2]];
     ctx.setTransform(20 * k, -10 * k, 20 * k, 10 * k, 4, 14);
-    ctx.drawImage(texCanvas(top, 1), 0, 0);
+    ctx.drawImage(texCanvas(block.faces[2], 1), 0, 0);
     ctx.setTransform(20 * k, 10 * k, 0, 22 * k, 4, 14);
-    ctx.drawImage(texCanvas(side, 0.78), 0, 0);
+    ctx.drawImage(texCanvas(block.faces[4], 0.78), 0, 0);
     ctx.setTransform(20 * k, -10 * k, 0, 22 * k, 24, 24);
-    ctx.drawImage(texCanvas(def.faces[4], 0.62), 0, 0);
+    ctx.drawImage(texCanvas(block.faces[0], 0.62), 0, 0);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
+  canvasCache.set(id, c);
+  return c;
+}
+
+export function itemIcon(id: number): string {
+  const hit = urlCache.get(id);
+  if (hit) return hit;
+  const url = itemIconCanvas(id).toDataURL();
+  urlCache.set(id, url);
+  return url;
+}
+
+/** @deprecated Phase 1 – Blöcke sind jetzt Items mit gleicher ID. */
+export const blockIcon = itemIcon;
+
+// ---------------------------------------------------------------------------
+// HUD-Symbole (9×9 Pixel, eigene Motive)
+// ---------------------------------------------------------------------------
+
+const HUD_MASKS: Record<string, { rows: string[]; pal: Record<string, string> }> = {
+  heart: {
+    rows: ['.dd...dd.', 'drrd.drrd', 'drlrrrrrd', 'drrrrrrrd', '.drrrrrd.', '..drrrd..', '...drd...', '....d....'],
+    pal: { d: '#3a0c10', r: '#e0403a', l: '#ff9a8a' },
+  },
+  heartHalf: {
+    rows: ['.dd...dd.', 'drrd.dggd', 'drlrrgggd', 'drrrrgggd', '.drrrggd.', '..drrgd..', '...drd...', '....d....'],
+    pal: { d: '#3a0c10', r: '#e0403a', l: '#ff9a8a', g: '#3b3540' },
+  },
+  heartEmpty: {
+    rows: ['.dd...dd.', 'dggd.dggd', 'dgggggggd', 'dgggggggd', '.dgggggd.', '..dgggd..', '...dgd...', '....d....'],
+    pal: { d: '#1a1418', g: '#3b3540' },
+  },
+  food: {
+    rows: ['......dd.', '.....dbbd', '..ddddbd.', '.dmmmmd..', 'dmllmmmd.', 'dmlmmmmd.', 'dmmmmmd..', '.dmmmd...', '..ddd....'],
+    pal: { d: '#3a210c', m: '#c07a35', l: '#f0b46a', b: '#efe4cf' },
+  },
+  foodEmpty: {
+    rows: ['......dd.', '.....dggd', '..ddddgd.', '.dggggd..', 'dgggggd..', 'dgggggggd', 'dggggggd.', '.dgggd...', '..ddd....'],
+    pal: { d: '#1a1418', g: '#3b3540' },
+  },
+  armor: {
+    rows: ['ddddddddd', 'dllmmmmmd', 'dlmmmmmmd', 'dmmmmmmmd', 'dmmmmmmmd', '.dmmmmmd.', '..dmmmd..', '...ddd...'],
+    pal: { d: '#2f3340', m: '#aab0bd', l: '#eef1f5' },
+  },
+  armorEmpty: {
+    rows: ['ddddddddd', 'dgggggggd', 'dgggggggd', 'dgggggggd', 'dgggggggd', '.dgggggd.', '..dgggd..', '...ddd...'],
+    pal: { d: '#1a1418', g: '#3b3540' },
+  },
+  bubble: {
+    rows: ['..ddddd..', '.dbbbbbd.', 'dbllbbbbd', 'dblbbbbbd', 'dbbbbbbbd', 'dbbbbbbbd', '.dbbbbbd.', '..ddddd..'],
+    pal: { d: '#1d3f78', b: '#5a9de8', l: '#d8ecff' },
+  },
+};
+
+const hudCache = new Map<string, string>();
+export function hudIcon(name: keyof typeof HUD_MASKS): string {
+  const hit = hudCache.get(name);
+  if (hit) return hit;
+  const { rows, pal } = HUD_MASKS[name];
+  const c = document.createElement('canvas');
+  c.width = c.height = 9;
+  const ctx = c.getContext('2d')!;
+  rows.forEach((row, y) =>
+    [...row].forEach((ch, x) => {
+      if (ch === '.') return;
+      ctx.fillStyle = pal[ch];
+      ctx.fillRect(x, y, 1, 1);
+    }),
+  );
   const url = c.toDataURL();
-  cache.set(id, url);
+  hudCache.set(name, url);
   return url;
 }

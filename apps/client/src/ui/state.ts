@@ -1,7 +1,19 @@
 import { signal } from '@preact/signals';
-import { DEFAULT_HOTBAR } from '@blockcraft/shared';
+import type { PlayerSnapshot, WindowSnapshot } from '@blockcraft/shared';
 
-export type Screen = 'boot' | 'menu' | 'worlds' | 'create' | 'settings' | 'loading' | 'playing' | 'paused' | 'inventory' | 'error';
+export type Screen =
+  | 'boot'
+  | 'menu'
+  | 'worlds'
+  | 'create'
+  | 'settings'
+  | 'keys'
+  | 'loading'
+  | 'playing'
+  | 'paused'
+  | 'inventory'
+  | 'dead'
+  | 'error';
 
 export const screen = signal<Screen>('boot');
 /** Bildschirm, zu dem «Zurück» aus den Einstellungen führt. */
@@ -11,8 +23,14 @@ export const loadingProgress = signal(0);
 export const errorText = signal('');
 export const notice = signal<string | null>(null);
 
-export const hotbar = signal<number[]>([...DEFAULT_HOTBAR]);
+/** Spielerzustand aus der Simulation (Inventar, Leben, Hunger …). */
+export const playerState = signal<PlayerSnapshot | null>(null);
+/** Geöffnetes Fenster (Inventar, Werktisch, Schmelze, Truhe). */
+export const windowState = signal<WindowSnapshot | null>(null);
+export const deathMessage = signal('');
 export const selectedSlot = signal(0);
+/** Ess-Fortschritt 0–1 (für die Anzeige). */
+export const eatProgress = signal(0);
 export const pointerLocked = signal(false);
 export const underwater = signal(false);
 export const showDebug = signal(false);

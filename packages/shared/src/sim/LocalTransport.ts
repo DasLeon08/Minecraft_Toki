@@ -6,14 +6,19 @@ export class LocalTransport implements Transport {
   readonly sharesWorld = true;
   private readonly unsub: (() => void)[] = [];
 
-  constructor(private readonly sim: Sim) {}
+  constructor(
+    private readonly sim: Sim,
+    readonly playerId = 1,
+  ) {}
 
   send(msg: ClientMessage): void {
-    this.sim.handle(msg);
+    this.sim.handle(msg, this.playerId);
   }
 
   onEvent(listener: (ev: ServerEvent) => void): () => void {
-    const off = this.sim.onEvent(listener);
+    const off = this.sim.onEvent((ev, to) => {
+      if (to === null || to === this.playerId) listener(ev);
+    });
     this.unsub.push(off);
     return off;
   }

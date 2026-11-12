@@ -3,7 +3,7 @@
  *
  * Vertex-Format (pro Vertex):
  *  - pos   Uint16×4: x, y, z in 1/16-Block (lokal zur Section), w = Normalen-Index (0–5, 6 = Pflanze)
- *  - uvl   Uint16×4: u, v (Blockeinheiten, kachelt), Textur-Layer, frei
+ *  - uvl   Uint16×4: u, v (in 1/16-Block, kachelt), Textur-Layer, frei
  *  - light Uint8×4 : AO (0–3), Sonnenlicht (0–15), Blocklicht (0–15), frei
  */
 import {
@@ -14,9 +14,13 @@ import {
   RenderLayer,
   SHAPE,
   Shape,
-  WATER,
+  WATER_LEVEL,
   BLOCKS,
 } from '../registry/blocks';
+
+/** Höhe der Wasseroberfläche (1/16) je Stufe 0–8, wenn darüber kein Wasser ist. */
+const WATER_HEIGHT = [14, 13, 11, 10, 8, 7, 5, 4, 14];
+const isW = (id: number): boolean => WATER_LEVEL[id] !== 255;
 import { PAD, padIndex } from './padded';
 
 export interface MeshLayerData {
@@ -66,8 +70,9 @@ class LayerBuilder {
     this.pos[o + 1] = y;
     this.pos[o + 2] = z;
     this.pos[o + 3] = n;
-    this.uvl[o] = u;
-    this.uvl[o + 1] = v;
+    // UVs in 1/16-Block (erlaubt Ausschnitte wie bei der Fackel)
+    this.uvl[o] = Math.round(u * 16);
+    this.uvl[o + 1] = Math.round(v * 16);
     this.uvl[o + 2] = layer;
     this.light[o] = ao;
     this.light[o + 1] = sky;
@@ -124,8 +129,7 @@ const AXES: [number, number, number][] = [
   [0, 0, 1],
 ];
 
-const WATER_DROP = 2; // Wasseroberfläche liegt 2/16 tiefer
-// Masken-Layout A: Textur+1 (10 Bit) | AO×4 (8 Bit) | Block-ID (10 Bit) | Wasser abgesenkt (1 Bit)
+// Masken-Layout A: Textur+1 (10 Bit) | AO×4 (8 Bit) | Block-ID (10 Bit) | Absenkung der Oberkante in 1/16 (4 Bit)
 
 /** Erzeugt die Mesh-Daten einer Section aus gepaddeten Daten (18³). */
 export function meshSection(blocks: Uint16Array, light: Uint8Array): SectionMeshData {
@@ -166,6 +170,19 @@ export function meshSection(blocks: Uint16Array, light: Uint8Array): SectionMesh
           }
           const f = p + nOff; // Zelle vor der Fläche
           const nb = blocks[f];
+          let drop = 0;
+          if (isW(b)) {
+            // Wasser: Höhe abhängig von der Stufe; Flächen zu gleich hohem/höherem Wasser entfallen
+            const myH = isW(blocks[p + PAD * PAD]) ? 16 : WATER_HEIGHT[WATER_LEVEL[b]];
+            drop = 16 - myH;
+            if (isW(nb)) {
+              const nh = axis === 1 ? 99 : isW(blocks[f + PAD * PAD]) ? 16 : WATER_HEIGHT[WATER_LEVEL[nb]];
+              if (nh >= myH || axis === 1) {
+                maskA[k] = 0;
+                continue;
+              }
+            }
+          }
           if (IS_OPAQUE[nb] || (CULL_SAME[b] && nb === b)) {
             maskA[k] = 0;
             continue;
@@ -211,10 +228,7 @@ export function meshSection(blocks: Uint16Array, light: Uint8Array): SectionMesh
             bl[0] = bl[1] = bl[2] = bl[3] = 15;
           }
           const tex = BLOCKS[b].faces[d];
-          // Wasser ohne Wasser darüber: Oberkante liegt tiefer (auch bei Seitenflächen)
-          const lowered = b === WATER && blocks[p + PAD * PAD] !== WATER ? 1 : 0;
-          maskA[k] =
-            ((tex + 1) | (ao[0] << 10) | (ao[1] << 12) | (ao[2] << 14) | (ao[3] << 16) | (b << 18) | (lowered << 28)) >>> 0;
+          maskA[k] = ((tex + 1) | (ao[0] << 10) | (ao[1] << 12) | (ao[2] << 14) | (ao[3] << 16) | (b << 18) | (drop << 28)) >>> 0;
           maskB[k] =
             (sk[0] | (sk[1] << 4) | (sk[2] << 8) | (sk[3] << 12) | (bl[0] << 16) | (bl[1] << 20) | (bl[2] << 24) | (bl[3] << 28)) >>> 0;
         }
@@ -244,11 +258,11 @@ export function meshSection(blocks: Uint16Array, light: Uint8Array): SectionMesh
           // Quad ausgeben
           const blockId = (a >>> 18) & 0x3ff;
           const tex = (a & 0x3ff) - 1;
-          const lowered = (a >>> 28) & 1;
+          const drop = (a >>> 28) & 15;
           const layerKind = LAYER[blockId];
           const builder =
             layerKind === RenderLayer.Translucent ? builders[2] : layerKind === RenderLayer.Cutout ? builders[1] : builders[0];
-          const plane = (positive ? s + 1 : s) * 16 - (positive && axis === 1 && lowered ? WATER_DROP : 0);
+          const plane = (positive ? s + 1 : s) * 16 - (positive && axis === 1 ? drop : 0);
           const a0 = (a >>> 10) & 3;
           const a1 = (a >>> 12) & 3;
           const a2 = (a >>> 14) & 3;
@@ -290,7 +304,7 @@ export function meshSection(blocks: Uint16Array, light: Uint8Array): SectionMesh
               tu = i + cu;
               tv = 16 - (j + cv);
             }
-            if (lowered && axis !== 1 && p3[1] === topY) p3[1] -= WATER_DROP;
+            if (drop && axis !== 1 && p3[1] === topY) p3[1] -= drop;
             builder.vertex(
               p3[0],
               p3[1],
@@ -349,6 +363,42 @@ export function meshSection(blocks: Uint16Array, light: Uint8Array): SectionMesh
             for (const [px, py, pz, u, v] of pts) builder.vertex(px, py, pz, 6, u, v, tex, 3, s, bk);
             builder.quadIndices(false);
           }
+        }
+      }
+    }
+  }
+
+  // Fackeln: dünner Stab (2×10 Pixel) mit Ausschnitt aus der Textur
+  for (let y = 0; y < 16; y++) {
+    for (let z = 0; z < 16; z++) {
+      for (let x = 0; x < 16; x++) {
+        const p = padIndex(x, y, z);
+        const b = blocks[p];
+        if (SHAPE[b] !== Shape.Torch) continue;
+        const l = light[p];
+        const tex = BLOCKS[b].faces[0];
+        const builder = builders[1];
+        const sky = l >> 4;
+        const bx = x * 16;
+        const by = y * 16;
+        const bz = z * 16;
+        const x0 = bx + 7;
+        const x1 = bx + 9;
+        const z0 = bz + 7;
+        const z1 = bz + 9;
+        const y0 = by;
+        const y1 = by + 10;
+        // [Normalen-Index, 4 Ecken (x, y, z, u, v)] mit u/v in Texeln
+        const quads: [number, number[][]][] = [
+          [4, [[x0, y0, z1, 7, 16], [x1, y0, z1, 9, 16], [x1, y1, z1, 9, 6], [x0, y1, z1, 7, 6]]],
+          [5, [[x1, y0, z0, 7, 16], [x0, y0, z0, 9, 16], [x0, y1, z0, 9, 6], [x1, y1, z0, 7, 6]]],
+          [0, [[x1, y0, z1, 7, 16], [x1, y0, z0, 9, 16], [x1, y1, z0, 9, 6], [x1, y1, z1, 7, 6]]],
+          [1, [[x0, y0, z0, 7, 16], [x0, y0, z1, 9, 16], [x0, y1, z1, 9, 6], [x0, y1, z0, 7, 6]]],
+          [2, [[x0, y1, z1, 7, 8], [x1, y1, z1, 9, 8], [x1, y1, z0, 9, 6], [x0, y1, z0, 7, 6]]],
+        ];
+        for (const [n, pts] of quads) {
+          for (const [px, py, pz, u, v] of pts) builder.vertex(px, py, pz, n, u / 16, v / 16, tex, 3, sky, 15);
+          builder.quadIndices(false);
         }
       }
     }

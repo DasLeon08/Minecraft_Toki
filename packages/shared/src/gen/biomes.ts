@@ -7,6 +7,8 @@ export enum Biome {
   Desert = 4,
   Mountains = 5,
   Snowfields = 6,
+  Taiga = 7,
+  Swamp = 8,
 }
 
 export const BIOME_NAMES: Record<Biome, string> = {
@@ -17,4 +19,9 @@ export const BIOME_NAMES: Record<Biome, string> = {
   [Biome.Desert]: 'Wüste',
   [Biome.Mountains]: 'Gebirge',
   [Biome.Snowfields]: 'Schneefelder',
+  [Biome.Taiga]: 'Taiga',
+  [Biome.Swamp]: 'Sumpf',
 };
+
+/** Version der Weltgenerierung (wird in den Weltdaten gespeichert). */
+export const GENERATOR_VERSION = 2;

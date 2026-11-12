@@ -17,6 +17,8 @@ export enum Shape {
   Cube = 1,
   /** Zwei gekreuzte Flächen (Pflanzen). */
   Cross = 2,
+  /** Dünner Stab (Fackel). */
+  Torch = 3,
 }
 
 /** Flächenreihenfolge: +X, -X, +Y, -Y, +Z, -Z. */
@@ -51,9 +53,16 @@ export interface BlockDef {
   /** Mit Fadenkreuz anvisierbar. */
   selectable: boolean;
   liquid: boolean;
-  /** Härte (Abbauzeit-Basis, ab Phase 2 genutzt). */
+  /** Härte (Abbauzeit-Basis); 0 = sofort, −1 = unzerstörbar. */
   hardness: number;
+  /** Bevorzugtes Werkzeug (schneller). */
   tool: ToolType;
+  /** Mindeststufe des passenden Werkzeugs, damit der Block etwas droppt (−1 = keine Anforderung). */
+  harvestTier: number;
+  /** Wasser-Stufe: 0 = Quelle, 1–7 = fliessend, 8 = fallend, −1 = kein Wasser. */
+  waterLevel: number;
+  /** Öffnet bei Rechtsklick ein Fenster. */
+  interactive: boolean;
   /** Textur-Layer pro Fläche (+X, -X, +Y, -Y, +Z, -Z). */
   faces: [number, number, number, number, number, number];
   /** Im Creative-Katalog sichtbar. */
@@ -77,6 +86,11 @@ interface BlockInput {
   liquid?: boolean;
   hardness?: number;
   tool?: ToolType;
+  harvestTier?: number;
+  waterLevel?: number;
+  interactive?: boolean;
+  /** Eigene Textur für die Seiten ±Z (Vorder-/Rückseite), sonst `side`. */
+  front?: TextureName;
   /** Eine Textur für alle Flächen … */
   all?: TextureName;
   /** … oder getrennt für oben / unten / Seiten. */
@@ -96,6 +110,7 @@ function define(id: number, input: BlockInput): number {
   const top = textureLayer((input.top ?? all ?? 'stein') as TextureName);
   const bottom = textureLayer((input.bottom ?? all ?? input.top ?? 'stein') as TextureName);
   const side = textureLayer((input.side ?? all ?? 'stein') as TextureName);
+  const front = input.front ? textureLayer(input.front) : side;
   const layer = input.layer ?? (shape === Shape.None ? RenderLayer.None : RenderLayer.Opaque);
   defs[id] = {
     id,
@@ -113,7 +128,10 @@ function define(id: number, input: BlockInput): number {
     liquid: input.liquid ?? false,
     hardness: input.hardness ?? 1,
     tool: input.tool ?? 'none',
-    faces: [side, side, top, bottom, side, side],
+    harvestTier: input.harvestTier ?? -1,
+    waterLevel: input.waterLevel ?? -1,
+    interactive: input.interactive ?? false,
+    faces: [front, front, top, bottom, front, front],
     inCatalog: input.inCatalog ?? shape !== Shape.None,
     mapColor: input.mapColor ?? 0x888888,
   };
@@ -130,7 +148,7 @@ export const AIR = define(0, {
   selectable: false,
   inCatalog: false,
 });
-export const STONE = define(1, { key: 'stein', name: 'Stein', all: 'stein', hardness: 1.5, tool: 'spitzhacke', mapColor: 0x7d7a86 });
+export const STONE = define(1, { key: 'stein', name: 'Stein', all: 'stein', hardness: 1.5, tool: 'spitzhacke', harvestTier: 0, mapColor: 0x7d7a86 });
 export const DIRT = define(2, { key: 'erde', name: 'Erde', all: 'erde', hardness: 0.5, tool: 'schaufel', mapColor: 0x8a5a3b });
 export const GRASS = define(3, {
   key: 'grasboden',
@@ -151,6 +169,7 @@ export const SANDSTONE = define(6, {
   side: 'sandstein_seite',
   hardness: 0.8,
   tool: 'spitzhacke',
+  harvestTier: 0,
   mapColor: 0xd9bd7a,
 });
 export const BEDROCK = define(7, { key: 'urgestein', name: 'Urgestein', all: 'urgestein', hardness: -1, mapColor: 0x3b3640 });
@@ -208,10 +227,11 @@ export const WATER = define(13, {
   selectable: false,
   liquid: true,
   hardness: -1,
+  waterLevel: 0,
   mapColor: 0x2f6fd0,
 });
-export const COAL_ORE = define(14, { key: 'kohleerz', name: 'Kohleerz', all: 'kohleerz', hardness: 3, tool: 'spitzhacke', mapColor: 0x55525a });
-export const IRON_ORE = define(15, { key: 'eisenerz', name: 'Eisenerz', all: 'eisenerz', hardness: 3, tool: 'spitzhacke', mapColor: 0xa08a7a });
+export const COAL_ORE = define(14, { key: 'kohleerz', name: 'Kohleerz', all: 'kohleerz', hardness: 3, tool: 'spitzhacke', harvestTier: 0, mapColor: 0x55525a });
+export const IRON_ORE = define(15, { key: 'eisenerz', name: 'Eisenerz', all: 'eisenerz', hardness: 3, tool: 'spitzhacke', harvestTier: 1, mapColor: 0xa08a7a });
 export const CACTUS = define(16, {
   key: 'kaktus',
   name: 'Kaktus',
@@ -230,8 +250,8 @@ export const GLASS = define(17, {
   hardness: 0.3,
   mapColor: 0xcfeaf0,
 });
-export const COBBLESTONE = define(18, { key: 'bruchstein', name: 'Bruchstein', all: 'bruchstein', hardness: 2, tool: 'spitzhacke', mapColor: 0x76727d });
-export const BRICKS = define(19, { key: 'ziegel', name: 'Ziegel', all: 'ziegel', hardness: 2, tool: 'spitzhacke', mapColor: 0xa4523f });
+export const COBBLESTONE = define(18, { key: 'bruchstein', name: 'Bruchstein', all: 'bruchstein', hardness: 2, tool: 'spitzhacke', harvestTier: 0, mapColor: 0x76727d });
+export const BRICKS = define(19, { key: 'ziegel', name: 'Ziegel', all: 'ziegel', hardness: 2, tool: 'spitzhacke', harvestTier: 0, mapColor: 0xa4523f });
 export const TALL_GRASS = define(20, {
   key: 'grasbueschel',
   name: 'Grasbüschel',
@@ -300,6 +320,134 @@ export const SNOWY_GRASS = define(26, {
 export const CLAY = define(27, { key: 'lehm', name: 'Lehm', all: 'lehm', hardness: 0.6, tool: 'schaufel', mapColor: 0xa7a9b8 });
 export const BIRCH_PLANKS = define(28, { key: 'birkenbretter', name: 'Birkenbretter', all: 'birke_bretter', hardness: 2, tool: 'axt', mapColor: 0xd8c690 });
 
+// --- Phase 2 -----------------------------------------------------------------
+export const CRAFTING_TABLE = define(29, {
+  key: 'werktisch',
+  name: 'Werktisch',
+  top: 'werktisch_oben',
+  bottom: 'eiche_bretter',
+  side: 'werktisch_seite',
+  hardness: 2.5,
+  tool: 'axt',
+  interactive: true,
+  mapColor: 0x9b6e3f,
+});
+export const FURNACE = define(30, {
+  key: 'schmelze',
+  name: 'Schmelze',
+  top: 'schmelze_oben',
+  side: 'schmelze_seite',
+  front: 'schmelze_front',
+  hardness: 3.5,
+  tool: 'spitzhacke',
+  harvestTier: 0,
+  interactive: true,
+  mapColor: 0x6b6776,
+});
+export const FURNACE_LIT = define(31, {
+  key: 'schmelze_an',
+  name: 'Schmelze (brennt)',
+  top: 'schmelze_oben',
+  side: 'schmelze_seite',
+  front: 'schmelze_front_an',
+  hardness: 3.5,
+  tool: 'spitzhacke',
+  harvestTier: 0,
+  interactive: true,
+  lightEmission: 13,
+  inCatalog: false,
+  mapColor: 0x6b6776,
+});
+export const CHEST = define(32, {
+  key: 'truhe',
+  name: 'Truhe',
+  top: 'truhe_oben',
+  side: 'truhe_seite',
+  hardness: 2.5,
+  tool: 'axt',
+  interactive: true,
+  mapColor: 0xa77a48,
+});
+export const TORCH = define(33, {
+  key: 'fackel',
+  name: 'Fackel',
+  all: 'fackel',
+  shape: Shape.Torch,
+  layer: RenderLayer.Cutout,
+  solid: false,
+  opaque: false,
+  lightEmission: 14,
+  hardness: 0,
+  mapColor: 0xffc65a,
+});
+export const LUMIT_ORE = define(34, { key: 'lumiterz', name: 'Lumiterz', all: 'lumiterz', hardness: 3, tool: 'spitzhacke', harvestTier: 2, mapColor: 0x8a5fc0 });
+export const BERRY_BUSH = define(35, {
+  key: 'beerenstrauch',
+  name: 'Beerenstrauch',
+  all: 'beerenstrauch',
+  shape: Shape.Cross,
+  layer: RenderLayer.Cutout,
+  solid: false,
+  opaque: false,
+  hardness: 0,
+  mapColor: 0x2f6b30,
+});
+export const SPRUCE_LOG = define(36, {
+  key: 'fichtenstamm',
+  name: 'Fichtenstamm',
+  top: 'fichte_kern',
+  side: 'fichte_rinde',
+  hardness: 2,
+  tool: 'axt',
+  mapColor: 0x4a3322,
+});
+export const SPRUCE_LEAVES = define(37, {
+  key: 'fichtennadeln',
+  name: 'Fichtennadeln',
+  all: 'fichte_nadeln',
+  layer: RenderLayer.Cutout,
+  opaque: false,
+  lightFilter: 1,
+  cullSame: true,
+  hardness: 0.2,
+  mapColor: 0x2b5a35,
+});
+export const SPRUCE_PLANKS = define(38, { key: 'fichtenbretter', name: 'Fichtenbretter', all: 'fichte_bretter', hardness: 2, tool: 'axt', mapColor: 0x6e4d2f });
+export const SWAMP_LEAVES = define(39, {
+  key: 'sumpflaub',
+  name: 'Sumpflaub',
+  all: 'sumpf_laub',
+  layer: RenderLayer.Cutout,
+  opaque: false,
+  lightFilter: 1,
+  cullSame: true,
+  hardness: 0.2,
+  mapColor: 0x4b6a2a,
+});
+
+/** Fliessendes Wasser: Stufen 1–7 und fallend (eigene IDs, kein Blockzustand nötig). */
+export const WATER_FLOW: number[] = [];
+for (let level = 1; level <= 8; level++) {
+  WATER_FLOW[level] = define(40 + level - 1, {
+    key: level === 8 ? 'wasser_fallend' : `wasser_${level}`,
+    name: 'Wasser',
+    all: 'wasser',
+    layer: RenderLayer.Translucent,
+    solid: false,
+    opaque: false,
+    lightFilter: 2,
+    cullSame: true,
+    replaceable: true,
+    selectable: false,
+    liquid: true,
+    hardness: -1,
+    waterLevel: level,
+    inCatalog: false,
+    mapColor: 0x2f6fd0,
+  });
+}
+export const WATER_FALLING = WATER_FLOW[8];
+
 export const BLOCK_COUNT = defs.length;
 
 /** Alle Blockdefinitionen nach ID. */
@@ -322,6 +470,8 @@ export const LIGHT_EMISSION = new Uint8Array(256);
 export const SHAPE = new Uint8Array(256);
 export const LAYER = new Uint8Array(256);
 export const CULL_SAME = new Uint8Array(256);
+/** Wasser-Stufe je Block (255 = kein Wasser). */
+export const WATER_LEVEL = new Uint8Array(256).fill(255);
 for (const d of defs) {
   IS_OPAQUE[d.id] = d.opaque ? 1 : 0;
   IS_SOLID[d.id] = d.solid ? 1 : 0;
@@ -330,6 +480,11 @@ for (const d of defs) {
   SHAPE[d.id] = d.shape;
   LAYER[d.id] = d.layer;
   CULL_SAME[d.id] = d.cullSame ? 1 : 0;
+  if (d.waterLevel >= 0) WATER_LEVEL[d.id] = d.waterLevel;
+}
+
+export function isWater(id: number): boolean {
+  return WATER_LEVEL[id] !== 255;
 }
 
 /** Blöcke, die im Creative-Katalog und in der Standard-Hotbar auftauchen. */

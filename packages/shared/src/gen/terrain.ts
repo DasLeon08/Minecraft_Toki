@@ -8,6 +8,7 @@ import {
   BEDROCK,
   BIRCH_LEAVES,
   BIRCH_LOG,
+  BERRY_BUSH,
   CACTUS,
   CLAY,
   COAL_ORE,
@@ -17,14 +18,18 @@ import {
   GRASS,
   GRAVEL,
   IRON_ORE,
+  LUMIT_ORE,
   OAK_LEAVES,
   OAK_LOG,
   SAND,
   SANDSTONE,
   SNOW,
   SNOWY_GRASS,
+  SPRUCE_LEAVES,
+  SPRUCE_LOG,
   STONE,
   SUNCUP,
+  SWAMP_LEAVES,
   TALL_GRASS,
   WATER,
 } from '../registry/blocks';
@@ -39,6 +44,9 @@ export interface ColumnSample {
 }
 
 const idx = (x: number, y: number, z: number): number => (y << 8) | (z << 4) | x;
+
+/** Pflanzen, die von Bäumen überschrieben werden dürfen. */
+const SOFT = new Set([TALL_GRASS, SUNCUP, EMBER_POPPY, DRY_SHRUB, BERRY_BUSH]);
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -108,17 +116,24 @@ export class TerrainGenerator {
     const r = 1 - Math.abs(this.ridge.fbm2(x / 260, z / 260, 3));
     const mountain = smoothstep(0.05, 0.4, c) * smoothstep(0.15, -0.35, e) * r * r * 78;
     const hills = d * (3 + 9 * smoothstep(-0.1, 0.5, c));
-    const height = Math.max(4, Math.min(WORLD_HEIGHT - 20, Math.floor(base + hills + mountain)));
+    let raw = base + hills + mountain;
 
     const t = this.temperature.fbm2(x / 900, z / 900, 3);
     const h = this.humidity.fbm2(x / 700, z / 700, 3);
 
+    // Sumpf: feucht, gemässigt und tief gelegen → Gelände wird flach um den Meeresspiegel gezogen
+    const swampness = smoothstep(0.3, 0.42, h) * smoothstep(-0.2, -0.08, t) * smoothstep(0.32, 0.2, t) * smoothstep(SEA_LEVEL + 16, SEA_LEVEL + 6, raw);
+    if (swampness > 0) raw = lerp(raw, SEA_LEVEL - 0.4 + d * 2.2, swampness);
+    const height = Math.max(4, Math.min(WORLD_HEIGHT - 20, Math.floor(raw)));
+
     let biome: Biome;
-    if (height < SEA_LEVEL - 1) biome = Biome.Ocean;
+    if (swampness > 0.5 && height >= SEA_LEVEL - 3) biome = Biome.Swamp;
+    else if (height < SEA_LEVEL - 1) biome = Biome.Ocean;
     else if (height <= SEA_LEVEL + 2 && c * 1.6 < -0.1) biome = Biome.Beach;
     else if (height > 104) biome = Biome.Mountains;
     else if (t > 0.22 && h < 0.08) biome = Biome.Desert;
     else if (t < -0.38) biome = Biome.Snowfields;
+    else if (t < -0.16 && h > -0.15) biome = Biome.Taiga;
     else if (h > 0.08) biome = Biome.Forest;
     else biome = Biome.Plains;
 
@@ -218,6 +233,10 @@ export class TerrainGenerator {
         top = underwater ? GRAVEL : SNOWY_GRASS;
         filler = DIRT;
         break;
+      case Biome.Swamp:
+        top = underwater ? ((local & 3) === 0 ? CLAY : DIRT) : GRASS;
+        filler = DIRT;
+        break;
       default:
         top = underwater ? (height < SEA_LEVEL - 3 ? GRAVEL : SAND) : GRASS;
         filler = underwater ? top : DIRT;
@@ -314,6 +333,7 @@ export class TerrainGenerator {
     const veins: [id: number, count: number, minY: number, maxY: number, minSize: number, maxSize: number, salt: number][] = [
       [COAL_ORE, 18, 5, 128, 5, 12, 201],
       [IRON_ORE, 11, 5, 64, 4, 8, 202],
+      [LUMIT_ORE, 2, 5, 16, 2, 5, 205],
       [GRAVEL, 6, 5, 100, 10, 22, 203],
       [DIRT, 6, 5, 100, 10, 22, 204],
     ];
@@ -352,8 +372,9 @@ export class TerrainGenerator {
         const r = hashInts(this.seed, cx * 16 + x, cz * 16 + z, 301) / 4294967296;
         const biome = biomes[i2] as Biome;
         if (ground === GRASS) {
-          const grassChance = biome === Biome.Plains ? 0.14 : 0.07;
-          if (r < grassChance) out[above] = TALL_GRASS;
+          const grassChance = biome === Biome.Plains ? 0.14 : biome === Biome.Swamp ? 0.1 : 0.07;
+          if ((biome === Biome.Forest || biome === Biome.Taiga) && r > 0.994) out[above] = BERRY_BUSH;
+          else if (r < grassChance) out[above] = TALL_GRASS;
           else if (r < grassChance + 0.012) out[above] = SUNCUP;
           else if (r < grassChance + 0.022) out[above] = EMBER_POPPY;
         } else if (ground === SAND && biome === Biome.Desert) {
@@ -374,7 +395,7 @@ export class TerrainGenerator {
       const heightRoll = rng.next();
       const s = this.sample(wx, wz);
       if (s.height < SEA_LEVEL || s.height > WORLD_HEIGHT - 12) continue;
-      let kind: 'oak' | 'birch' | 'cactus' | null = null;
+      let kind: 'oak' | 'birch' | 'cactus' | 'spruce' | 'swamp' | null = null;
       switch (s.biome) {
         case Biome.Forest:
           if (roll < 0.5) kind = shapeRoll < 0.3 ? 'birch' : 'oak';
@@ -383,7 +404,13 @@ export class TerrainGenerator {
           if (roll < 0.035) kind = 'oak';
           break;
         case Biome.Snowfields:
-          if (roll < 0.06) kind = 'birch';
+          if (roll < 0.06) kind = shapeRoll < 0.5 ? 'spruce' : 'birch';
+          break;
+        case Biome.Taiga:
+          if (roll < 0.45) kind = shapeRoll < 0.85 ? 'spruce' : 'birch';
+          break;
+        case Biome.Swamp:
+          if (roll < 0.12 && s.height >= SEA_LEVEL) kind = 'swamp';
           break;
         case Biome.Desert:
           if (roll < 0.07) kind = 'cactus';
@@ -403,8 +430,12 @@ export class TerrainGenerator {
         for (let y = 0; y < hgt; y++) this.put(out, lx, base + y, lz, CACTUS, true);
         continue;
       }
-      const log = kind === 'oak' ? OAK_LOG : BIRCH_LOG;
-      const leaves = kind === 'oak' ? OAK_LEAVES : BIRCH_LEAVES;
+      if (kind === 'spruce') {
+        this.placeSpruce(out, lx, base, lz, 6 + Math.floor(heightRoll * 4), wx, wz);
+        continue;
+      }
+      const log = kind === 'birch' ? BIRCH_LOG : OAK_LOG;
+      const leaves = kind === 'birch' ? BIRCH_LEAVES : kind === 'swamp' ? SWAMP_LEAVES : OAK_LEAVES;
       const trunk = kind === 'oak' ? 4 + Math.floor(heightRoll * 3) : 5 + Math.floor(heightRoll * 3);
       const top = base + trunk - 1;
       // Laubkrone
@@ -432,6 +463,29 @@ export class TerrainGenerator {
     }
   }
 
+  /** Fichte: kegelförmige Krone aus Nadeln. */
+  private placeSpruce(out: Uint16Array, lx: number, base: number, lz: number, trunk: number, wx: number, wz: number): void {
+    const top = base + trunk - 1;
+    const rng = new Rng(hashInts(this.seed, wx, wz, 403));
+    this.put(out, lx, top + 1, lz, SPRUCE_LEAVES, false);
+    for (let i = 0; i <= trunk - 3; i++) {
+      const y = top - i;
+      const radius = i === 0 ? 1 : i % 2 === 1 ? Math.min(3, 1 + (i >> 1)) : Math.max(1, Math.min(3, (i >> 1)));
+      for (let dz = -radius; dz <= radius; dz++)
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (Math.abs(dx) + Math.abs(dz) > radius + (radius >= 2 ? 1 : 0)) continue;
+          if (radius >= 2 && Math.abs(dx) === radius && Math.abs(dz) === radius) continue;
+          if (Math.abs(dx) + Math.abs(dz) === radius + 1 && rng.next() < 0.4) continue;
+          this.put(out, lx + dx, y, lz + dz, SPRUCE_LEAVES, false);
+        }
+    }
+    for (let y = base; y <= top; y++) this.put(out, lx, y, lz, SPRUCE_LOG, true);
+    if (lx >= 0 && lx < 16 && lz >= 0 && lz < 16) {
+      const g = idx(lx, base - 1, lz);
+      if (out[g] === GRASS || out[g] === SNOWY_GRASS) out[g] = DIRT;
+    }
+  }
+
   /** Schreibt einen Block, sofern er in der aktuellen Spalte liegt. */
   private put(out: Uint16Array, x: number, y: number, z: number, id: number, force: boolean): void {
     if (x < 0 || x > 15 || z < 0 || z > 15 || y <= 0 || y >= WORLD_HEIGHT) return;
@@ -439,10 +493,10 @@ export class TerrainGenerator {
     const cur = out[i];
     if (cur === BEDROCK) return;
     if (force) {
-      if (cur === AIR || cur === TALL_GRASS || cur === SUNCUP || cur === EMBER_POPPY || cur === DRY_SHRUB || cur === OAK_LEAVES || cur === BIRCH_LEAVES || cur === WATER) out[i] = id;
+      if (cur === AIR || SOFT.has(cur) || cur === OAK_LEAVES || cur === BIRCH_LEAVES || cur === SPRUCE_LEAVES || cur === SWAMP_LEAVES || cur === WATER) out[i] = id;
       return;
     }
-    if (cur === AIR || cur === TALL_GRASS || cur === SUNCUP || cur === EMBER_POPPY || cur === DRY_SHRUB) out[i] = id;
+    if (cur === AIR || SOFT.has(cur)) out[i] = id;
   }
 
   /** Sucht eine trockene Startposition in der Nähe des Ursprungs. */

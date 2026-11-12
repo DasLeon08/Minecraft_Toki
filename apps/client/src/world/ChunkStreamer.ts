@@ -3,11 +3,13 @@
  * Meshing geänderter Sections im Worker-Pool – nächste Sections zuerst.
  */
 import {
+  applyBlockEntities,
   ChunkColumn,
   columnKey,
   columnKeyX,
   columnKeyZ,
-  decodeColumn,
+  decodeColumnFull,
+  type BlockEntityData,
   fillPadded,
   PAD_VOLUME,
   sectionKey,
@@ -24,8 +26,8 @@ export interface StreamerOptions {
   /** Gespeicherte (veränderte) Spalten dieser Welt. */
   savedKeys: Set<number>;
   loadSaved(cx: number, cz: number): Promise<Uint8Array | undefined>;
-  /** Wird vor dem Entladen einer veränderten Spalte aufgerufen (zum Speichern). */
-  onUnloadModified(col: ChunkColumn): void;
+  /** Wird vor dem Entladen jeder Spalte aufgerufen (speichert, falls verändert). */
+  onUnload(col: ChunkColumn): void;
 }
 
 type MeshResult = Extract<WorkerResponse, { op: 'mesh' }>;
@@ -44,6 +46,8 @@ export class ChunkStreamer {
   private readonly results: MeshResult[] = [];
   private readonly padPool: { blocks: Uint16Array; light: Uint8Array }[] = [];
   private readonly offDirty: () => void;
+  /** Block-Entities gespeicherter Spalten, bis der Worker das Licht berechnet hat. */
+  private readonly pendingEntities = new Map<number, BlockEntityData[]>();
   private disposed = false;
   /** Statistik */
   generated = 0;
@@ -127,7 +131,7 @@ export class ChunkStreamer {
   }
 
   private unload(key: number, col: ChunkColumn): void {
-    if (col.modified) this.opts.onUnloadModified(col);
+    this.opts.onUnload(col);
     this.meshes.removeColumn(key);
     this.world.removeColumn(col.cx, col.cz);
     this.light.invalidateCache();
@@ -148,7 +152,9 @@ export class ChunkStreamer {
       const task = this.opts.savedKeys.has(key)
         ? this.opts.loadSaved(cx, cz).then((data) => {
             if (!data) return this.pool.run({ op: 'gen', cx, cz });
-            const blocks = decodeColumn(data);
+            const decoded = decodeColumnFull(data);
+            if (decoded.blockEntities.length) this.pendingEntities.set(key, decoded.blockEntities);
+            const blocks = decoded.blocks;
             return this.pool.run({ op: 'light', cx, cz, blocks }, [blocks.buffer]);
           })
         : this.pool.run({ op: 'gen', cx, cz });
@@ -169,6 +175,12 @@ export class ChunkStreamer {
     if (!this.inLoadRadius(cx - this.centerX, cz - this.centerZ)) return;
     if (this.world.hasColumn(cx, cz)) return;
     const col = ChunkColumn.fromFlat(cx, cz, blocks, light);
+    const key0 = columnKey(cx, cz);
+    const entities = this.pendingEntities.get(key0);
+    if (entities) {
+      applyBlockEntities(col, entities);
+      this.pendingEntities.delete(key0);
+    }
     this.world.addColumn(col);
     this.light.invalidateCache();
     this.light.stitchColumn(cx, cz);

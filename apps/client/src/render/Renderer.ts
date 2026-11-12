@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { BreakOverlay } from './BreakOverlay';
 import { ChunkMeshStore } from './ChunkMeshStore';
+import { ItemRenderer } from './ItemRenderer';
 import { Sky } from './Sky';
 import { createBlockTextureArray } from './textures';
 
@@ -16,6 +18,8 @@ export class Renderer {
   readonly chunks: ChunkMeshStore;
   readonly sky: Sky;
   private readonly highlight: THREE.LineSegments;
+  readonly breakOverlay: BreakOverlay;
+  readonly items = new ItemRenderer();
   private readonly resizeObserver: ResizeObserver;
   private atlas: THREE.DataArrayTexture;
   renderDistance = 8;
@@ -64,6 +68,8 @@ export class Renderer {
     this.highlight.visible = false;
     this.highlight.renderOrder = 4;
     this.scene.add(this.highlight);
+    this.breakOverlay = new BreakOverlay(this.chunks.uniforms.uAtlas);
+    this.scene.add(this.breakOverlay.mesh, this.items.group);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -76,6 +82,7 @@ export class Renderer {
     this.atlas = createBlockTextureArray();
     this.chunks.uniforms.uAtlas.value = this.atlas;
     old.dispose();
+    this.items.clearTextures();
   }
 
   get canvas(): HTMLCanvasElement {
@@ -140,6 +147,8 @@ export class Renderer {
   dispose(): void {
     this.resizeObserver.disconnect();
     this.chunks.dispose();
+    this.breakOverlay.dispose();
+    this.items.dispose();
     this.sky.dispose();
     this.atlas.dispose();
     this.highlight.geometry.dispose();

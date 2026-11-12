@@ -38,6 +38,8 @@ export interface MoveInput {
 export interface PhysicsEvents {
   /** Fallhöhe in Blöcken beim Aufkommen (0 = kein Landen in diesem Tick). */
   landedFrom: number;
+  /** In diesem Tick abgesprungen. */
+  jumped: boolean;
 }
 
 export class PlayerBody {
@@ -86,7 +88,7 @@ export class PlayerBody {
     this.prevX = this.x;
     this.prevY = this.y;
     this.prevZ = this.z;
-    const events: PhysicsEvents = { landedFrom: 0 };
+    const events: PhysicsEvents = { landedFrom: 0, jumped: false };
 
     // Schleichen: Höhe nur reduzieren, wenn kein Hindernis (beim Aufstehen prüfen)
     const wantSneak = input.sneak && !this.flying;
@@ -143,6 +145,7 @@ export class PlayerBody {
       const accel = this.onGround ? speed * (0.16277136 / (slip * slip * slip)) : this.sprinting ? 0.026 : 0.02;
       if (input.jump && this.onGround) {
         this.vy = JUMP;
+        events.jumped = true;
         if (this.sprinting) {
           this.vx += -Math.sin(input.yaw) * 0.2;
           this.vz += -Math.cos(input.yaw) * 0.2;

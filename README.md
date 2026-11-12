@@ -6,9 +6,17 @@ Bauen, graben, entdecken – in einer prozedural generierten, unendlichen Blockw
 > Arbeitstitel. Alle Namen, Texturen, Sounds und der Code sind eigenständig
 > (siehe [docs/LEGAL.md](docs/LEGAL.md) und [docs/NAMING.md](docs/NAMING.md)).
 
-## Stand: Phase 1 (spielbarer Prototyp)
+## Stand: Phase 2 (Survival-Kern)
 
-- Unendliche Welt per Seed: Ebene, Wald, Wüste, Ozean, Strand, Gebirge, Schneefelder; Höhlen, Erze, Bäume, Pflanzen, Wasser
+**Neu in Phase 2**
+- Überlebensmodus: Leben, Hunger, Sättigung, Luft, Fallschaden, Ertrinken, Verhungern, Tod und Wiederbeleben
+- Abbauen mit Fortschritt und Rissen, Werkzeuge in vier Stufen (Holz, Stein, Eisen, Lumit) mit Haltbarkeit, Drops als Items in der Welt
+- Inventar mit 2×2-Crafting und Rüstung, Werktisch (3×3), Schmelze, Truhe, rund 40 Rezepte, Kreativ-Katalog mit Suche
+- Fackeln, Lumiterz, Beerensträucher, Taiga mit Fichten, Sumpf, fliessendes Wasser
+- Prozedurale Klänge und generative Musik, Lautstärke-Regler, frei belegbare Tasten
+
+**Aus Phase 1**
+- Unendliche Welt per Seed: Ebene, Wald, Wüste, Ozean, Strand, Gebirge, Schneefelder, Taiga, Sumpf; Höhlen, Erze, Bäume, Pflanzen, Wasser
 - Chunk-Streaming mit Web Workern, Greedy Meshing, Face Culling, Ambient Occlusion, weiches Licht
 - Sonnen- und Blocklicht (Leuchtkristall), Tag-Nacht-Zyklus mit Sonne, Mond, Sternen und Wolken
 - Laufen, Sprinten, Schleichen (Kantenschutz), Springen, Schwimmen, Fliegen (Kreativ)
@@ -24,12 +32,16 @@ Bauen, graben, entdecken – in einer prozedural generierten, unendlichen Blockw
 | Leertaste | springen · 2× = fliegen (Kreativ) |
 | Shift | schleichen · im Flug: sinken |
 | Strg oder 2× W | sprinten |
-| Linksklick / Rechtsklick | abbauen / platzieren |
-| Mittelklick | anvisierten Block in die Hotbar |
+| Linksklick (halten) | abbauen |
+| Rechtsklick | platzieren · Werktisch/Schmelze/Truhe öffnen · essen (halten) |
+| Mittelklick | anvisierten Block wählen |
 | 1–9, Mausrad | Hotbar-Platz wählen |
-| E | Blockauswahl |
+| E | Inventar (im Kreativmodus mit Katalog) |
+| Q (Strg+Q) | Item (Stapel) fallen lassen |
 | F3 | Debug-Anzeige |
 | Esc | Pause |
+
+Alle Tasten lassen sich unter Einstellungen → Tastenbelegung ändern.
 
 ## Entwicklung
 

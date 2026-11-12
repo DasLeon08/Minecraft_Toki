@@ -1,6 +1,6 @@
 /** Verbindet die Menüs mit Speicher und Spielsitzung. */
 import { signal } from '@preact/signals';
-import { seedFromInput, type GameMode } from '@blockcraft/shared';
+import { getItemByKey, isValidItem, maxStack, seedFromInput, type GameMode } from '@blockcraft/shared';
 import { benchMode, testMode } from '../config/env';
 import { Game } from '../game/Game';
 import { WorldStore, type WorldMeta } from '../storage/WorldStore';
@@ -192,17 +192,46 @@ function exposeTestHooks(): void {
       return game?.world.getBlock(x, y, z) ?? -1;
     },
     setBlock(x: number, y: number, z: number, id: number) {
-      game?.transport.send({ t: 'setBlock', seq: 0, x, y, z, id });
+      // Test-Hook: direkt über die Simulation (unabhängig vom Spielmodus)
+      game?.sim.setBlock(x, y, z, id);
       return game?.world.getBlock(x, y, z) ?? -1;
+    },
+    /** Inventar/Status des Spielers (Snapshot). */
+    state() {
+      return game?.simPlayer.snapshot() ?? null;
+    },
+    give(id: number, count: number) {
+      if (!isValidItem(id)) throw new Error(`Unbekanntes Item ${id}`);
+      return game?.sim.give(1, { id, count: Math.max(1, Math.min(maxStack(id), count)) }) ?? null;
+    },
+    /** Item-ID über den Schlüssel (z. B. 'holz_spitzhacke'). */
+    itemId(key: string) {
+      return getItemByKey(key)?.id ?? -1;
+    },
+    send(msg: unknown) {
+      game?.transport.send(msg as Parameters<Game['transport']['send']>[0]);
+    },
+    window() {
+      return game?.simPlayer.window ? game.simPlayer.window.win.snapshot() : null;
+    },
+    items() {
+      return game?.sim.itemSnapshots() ?? [];
+    },
+    tick(n = 1) {
+      for (let i = 0; i < n; i++) game?.sim.tick();
     },
     save() {
       return game?.save();
     },
     teleport(x: number, y: number, z: number, flying = true) {
       const b = game?.player.body;
-      if (!b) return;
+      if (!b || !game) return;
       b.setPosition(x, y, z);
       b.flying = flying;
+      const sp = game.simPlayer;
+      sp.x = x;
+      sp.y = y;
+      sp.z = z;
     },
     look(yaw: number, pitch: number) {
       if (!game) return;
@@ -225,7 +254,7 @@ function exposeTestHooks(): void {
     input() {
       if (!game) return null;
       const t = game.player.target;
-      return { locked: game.input.locked, target: t ? { x: t.x, y: t.y, z: t.z, id: t.id } : null, held: game.player.heldBlock };
+      return { locked: game.input.locked, target: t ? { x: t.x, y: t.y, z: t.z, id: t.id } : null, held: game.player.held()?.id ?? null };
     },
     stats() {
       return game ? { ...game.renderer.stats, meshes: game.renderer.chunks.count, loaded: game.world.columns.size } : null;
@@ -252,8 +281,8 @@ function exposeTestHooks(): void {
       const meta = worlds.value.find((w2) => w2.id === id);
       return meta ? playWorld(meta) : Promise.reject(new Error('unbekannte Welt'));
     },
-    create(name: string, seed: string) {
-      return createWorld(name, seed, 'creative');
+    create(name: string, seed: string, mode: GameMode = 'creative') {
+      return createWorld(name, seed, mode);
     },
   };
 }

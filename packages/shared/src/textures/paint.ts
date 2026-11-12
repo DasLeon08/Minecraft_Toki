@@ -589,6 +589,308 @@ const cracks = (stage: number): Painter => (c, rng) => {
   }
 };
 
+
+// ---------------------------------------------------------------------------
+// Phase 2: Sprites aus ASCII-Masken ('.' = transparent)
+// ---------------------------------------------------------------------------
+
+function sprite(rows: string[], palette: Record<string, number>, background?: Painter): Painter {
+  return (c, rng) => {
+    if (background) background(c, rng);
+    else for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) c.set(x, y, 0, 0);
+    for (let y = 0; y < S; y++) {
+      const row = rows[y] ?? '';
+      for (let x = 0; x < S; x++) {
+        const ch = row[x] ?? '.';
+        if (ch === '.') continue;
+        const col = palette[ch];
+        if (col !== undefined) c.set(x, y, col);
+      }
+    }
+  };
+}
+
+const HANDLE = { h: 0x8a6038, H: 0x4f351f };
+const TIER_PAL: Record<string, { d: number; m: number; l: number }> = {
+  holz: { d: 0x5e4024, m: 0x9b6e3f, l: 0xc99c66 },
+  stein: { d: 0x4b4852, m: 0x7a7685, l: 0xa6a2b0 },
+  eisen: { d: 0x7f838d, m: 0xc3c7cf, l: 0xf2f4f7 },
+  lumit: { d: 0x4e2780, m: 0x9558d4, l: 0xdcb8ff },
+};
+
+const TOOL_MASKS: Record<string, string[]> = {
+  spitzhacke: [
+    '................',
+    '....dmmmmmmd....',
+    '...dmllllllmd...',
+    '..dmm..hH..mmd..',
+    '..dm...Hh...md..',
+    '..d....hH....d..',
+    '.......Hh.......',
+    '.......hH.......',
+    '.......Hh.......',
+    '.......hH.......',
+    '.......Hh.......',
+    '.......hH.......',
+    '.......Hh.......',
+    '.......hH.......',
+    '.......HH.......',
+  ],
+  schaufel: [
+    '................',
+    '......dmmd......',
+    '.....dmllmd.....',
+    '.....dmllmd.....',
+    '.....dmmmmd.....',
+    '......dmmd......',
+    '.......hH.......',
+    '.......Hh.......',
+    '.......hH.......',
+    '.......Hh.......',
+    '.......hH.......',
+    '.......Hh.......',
+    '.......hH.......',
+    '......dHHd......',
+    '.......dd.......',
+  ],
+  axt: [
+    '................',
+    '........dmmd....',
+    '.......hdmlmd...',
+    '.......Hdmllmd..',
+    '.......hdmllmd..',
+    '.......Hdmlmd...',
+    '.......hHdmd....',
+    '.......Hh.......',
+    '.......hH.......',
+    '.......Hh.......',
+    '.......hH.......',
+    '.......Hh.......',
+    '.......hH.......',
+    '.......Hh.......',
+    '.......HH.......',
+  ],
+  schwert: [
+    '................',
+    '.......dd.......',
+    '......dlmd......',
+    '......dlmd......',
+    '......dlmd......',
+    '......dlmd......',
+    '......dlmd......',
+    '......dlmd......',
+    '......dlmd......',
+    '....dddmmddd....',
+    '....dmmmmmmd....',
+    '.......Hh.......',
+    '.......hH.......',
+    '.......Hh.......',
+    '......dmmd......',
+  ],
+};
+
+const ARMOR_MASKS: Record<string, string[]> = {
+  helm: ['', '', '', '....dddddddd....', '...dmmllllmmd...', '...dmlmmmmlmd...', '...dmd....dmd...', '...dmd....dmd...', '...ddd....ddd...'],
+  brustpanzer: [
+    '',
+    '...ddd....ddd...',
+    '..dmmd....dmmd..',
+    '..dmlmddddmlmd..',
+    '..dmllmmmmllmd..',
+    '...dmlmmmmlmd...',
+    '...dmmmmmmmmd...',
+    '...dmmlmmlmmd...',
+    '...dmmmmmmmmd...',
+    '...dmmmmmmmmd...',
+    '...dmmmmmmmmd...',
+    '...dddddddddd...',
+  ],
+  beinschutz: [
+    '',
+    '...dddddddddd...',
+    '...dmmllllmmd...',
+    '...dmmmmmmmmd...',
+    '...dmmmddmmmd...',
+    '...dmmd..dmmd...',
+    '...dmld..dlmd...',
+    '...dmmd..dmmd...',
+    '...dmmd..dmmd...',
+    '...dmld..dlmd...',
+    '...dmmd..dmmd...',
+    '...dddd..dddd...',
+  ],
+  stiefel: ['', '', '', '', '', '', '...ddd....ddd...', '...dmd....dmd...', '...dld....dld...', '..dmmd....dmmd..', '.dmmmd....dmmmd.', '.ddddd....ddddd.'],
+};
+
+const tool = (tier: string, type: string): Painter => sprite(TOOL_MASKS[type], { ...TIER_PAL[tier], ...HANDLE });
+const armor = (tier: string, part: string): Painter => sprite(ARMOR_MASKS[part], TIER_PAL[tier]);
+
+const stick = sprite(
+  [
+    '',
+    '.............Hh.',
+    '............hH..',
+    '...........Hh...',
+    '..........hH....',
+    '.........Hh.....',
+    '........hH......',
+    '.......Hh.......',
+    '......hH........',
+    '.....Hh.........',
+    '....hH..........',
+    '...Hh...........',
+    '..hH............',
+  ],
+  HANDLE,
+);
+
+const coal = sprite(
+  ['', '', '', '.....dddd.......', '...ddmmmmdd.....', '..dmmlmmmmmd....', '..dmllmmmdmmd...', '.dmmlmmmmmmmd...', '.dmmmmmdmmmmd...', '.dmmmmmmmmmd....', '..ddmmmmmdd.....', '....ddddd.......'],
+  { d: 0x121014, m: 0x2b2830, l: 0x57525f },
+);
+
+const ingot = sprite(
+  ['', '', '', '', '', '.....dddddddd...', '....dllllllmd...', '...dlmmmmmmmd...', '..dlmmmmmmmd....', '..dmmmmmmmdd....', '..dddddddd......'],
+  TIER_PAL.eisen,
+);
+
+const lumitGem = sprite(
+  ['', '', '.......dd.......', '......dlld......', '.....dllmmd.....', '....dllmmmmd....', '...dllmmmmmmd...', '...dlmmmmmmdd...', '....dmmmmmdd....', '.....dmmmdd.....', '......dmdd......', '.......dd.......'],
+  TIER_PAL.lumit,
+);
+
+const apple = sprite(
+  [
+    '',
+    '',
+    '.......H........',
+    '.......Hgg......',
+    '....rrrHrrr.....',
+    '...rlrrrrrrr....',
+    '..rllrrrrrrrr...',
+    '..rlrrrrrrrrr...',
+    '..rrrrrrrrrrr...',
+    '..rrrrrrrrrrd...',
+    '...rrrrrrrrd....',
+    '....rrdrrdd.....',
+  ],
+  { r: 0xc8342c, l: 0xf08a6a, d: 0x86211c, H: 0x4f351f, g: 0x4c9a38 },
+);
+
+const berries = sprite(
+  ['', '', '', '......gg........', '.....g..g.......', '....bb...bb.....', '...blbb.blbb....', '...bbbb.bbbb....', '....bb...bb.....', '.......bb.......', '......blbb......', '......bbbb......', '.......bb.......'],
+  { b: 0x2a3f9a, l: 0x8aa0f0, g: 0x3e8a30 },
+);
+
+const torch = sprite(
+  ['', '', '', '', '', '', '.......fy.......', '.......yY.......', '.......YO.......', '.......hH.......', '.......Hh.......', '.......hH.......', '.......Hh.......', '.......hH.......', '.......Hh.......', '.......hH.......'],
+  { f: 0xfff6c8, y: 0xffd450, Y: 0xffb22e, O: 0xe0701e, ...HANDLE },
+);
+
+const berryBush = (c: Canvas, rng: Rng): void => {
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) c.set(x, y, 0, 0);
+  for (let y = 3; y < 16; y++)
+    for (let x = 1; x < 15; x++) {
+      const d = Math.hypot((x - 7.5) / 7, (y - 10) / 7);
+      if (d < 1 && rng.next() > 0.12) c.set(x, y, ramp([0x24552a, 0x2f6b30, 0x3b7f38, 0x4a9142], Math.min(0.999, rng.next() * (1.1 - d))));
+    }
+  for (let i = 0; i < 9; i++) {
+    const x = rng.int(3, 12);
+    const y = rng.int(5, 13);
+    c.set(x, y, 0x2a3f9a);
+    c.set(x, y - 1, 0x8aa0f0);
+  }
+};
+
+const craftingTop: Painter = (c, rng) => {
+  planks(P.oakWood)(c, rng);
+  for (let i = 0; i < S; i++) {
+    c.set(i, 0, 0x4f351f);
+    c.set(0, i, 0x4f351f);
+    c.set(i, 15, 0x4f351f);
+    c.set(15, i, 0x4f351f);
+  }
+  for (const k of [5, 10]) for (let i = 2; i < 14; i++) {
+    c.set(k, i, shade(P.oakWood[0], 0.7));
+    c.set(i, k, shade(P.oakWood[0], 0.7));
+  }
+};
+
+const craftingSide: Painter = (c, rng) => {
+  planks(P.oakWood)(c, rng);
+  for (let x = 0; x < S; x++) for (let y = 0; y < 3; y++) c.set(x, y, y === 2 ? 0x4f351f : 0x7a5530);
+  // Werkzeugbrett: kleiner Hammer und Säge
+  const hammer = ['.ddd.', '.ddd.', '..h..', '..h..', '..h..'];
+  hammer.forEach((row, y) => [...row].forEach((ch, x) => ch !== '.' && c.set(3 + x, 6 + y, ch === 'd' ? 0x8f939c : 0x5e4024)));
+  for (let x = 9; x < 14; x++) c.set(x, 7, 0xc3c7cf);
+  for (let x = 9; x < 14; x += 2) c.set(x, 8, 0xc3c7cf);
+  c.set(13, 6, 0x5e4024);
+  c.set(13, 7, 0x5e4024);
+};
+
+const furnaceSide: Painter = (c, rng) => {
+  for (let y = 0; y < S; y++) {
+    const row = Math.floor(y / 4);
+    const off = row % 2 ? 4 : 0;
+    for (let x = 0; x < S; x++) {
+      if (y % 4 === 3 || (x + off) % 8 === 7) c.set(x, y, 0x45414c);
+      else c.set(x, y, ramp(P.stone, 0.3 + rng.next() * 0.5));
+    }
+  }
+};
+
+const furnaceFront = (lit: boolean): Painter => (c, rng) => {
+  furnaceSide(c, rng);
+  for (let y = 7; y < 14; y++)
+    for (let x = 4; x < 12; x++) {
+      const arch = y === 7 && (x === 4 || x === 11);
+      if (arch) continue;
+      if (!lit) c.set(x, y, y > 11 ? 0x2a2630 : 0x17151a);
+      else {
+        const t = (y - 7) / 7 + rng.next() * 0.25;
+        c.set(x, y, t > 0.8 ? 0xffe08a : t > 0.55 ? 0xffa83c : t > 0.3 ? 0xd8581e : 0x5a1e10);
+      }
+    }
+  for (let x = 3; x < 13; x++) c.set(x, 14, 0x2e2b33);
+};
+
+const furnaceTop: Painter = (c, rng) => {
+  noiseFill(c, rng, P.stone, 8, 0.25);
+  for (let i = 0; i < S; i++) {
+    c.set(i, 0, 0x45414c);
+    c.set(0, i, 0x45414c);
+    c.set(i, 15, 0x45414c);
+    c.set(15, i, 0x45414c);
+  }
+  for (let y = 6; y < 10; y++) for (let x = 6; x < 10; x++) c.set(x, y, 0x1c1a20);
+};
+
+const chestTop: Painter = (c, rng) => {
+  planks(P.oakWood)(c, rng);
+  for (let i = 0; i < S; i++) {
+    c.set(i, 0, 0x4f351f);
+    c.set(0, i, 0x4f351f);
+    c.set(i, 15, 0x4f351f);
+    c.set(15, i, 0x4f351f);
+    c.set(i, 7, 0x8f939c);
+    c.set(i, 8, 0x6c707a);
+  }
+};
+
+const chestSide: Painter = (c, rng) => {
+  chestTop(c, rng);
+  for (let y = 5; y < 10; y++) for (let x = 6; x < 10; x++) c.set(x, y, y === 5 || y === 9 || x === 6 || x === 9 ? 0x6c707a : 0xc3c7cf);
+  c.set(7, 7, 0x2b2830);
+  c.set(8, 7, 0x2b2830);
+};
+
+const P2 = {
+  spruceBark: [0x3a281a, 0x46301f, 0x523925, 0x5e422b],
+  spruceWood: [0x5d4128, 0x684a2e, 0x735335, 0x7f5d3c],
+  spruceLeaf: [0x1f4429, 0x26502f, 0x2d5c36, 0x356a3e],
+  swampLeaf: [0x3c5622, 0x466428, 0x50712e, 0x5c7f36],
+};
+
 const PAINTERS: Record<TextureName, Painter> = {
   stein: stone,
   erde: px2(dirt),
@@ -627,6 +929,52 @@ const PAINTERS: Record<TextureName, Painter> = {
   risse_1: cracks(1),
   risse_2: cracks(2),
   risse_3: cracks(3),
+  werktisch_oben: craftingTop,
+  werktisch_seite: craftingSide,
+  schmelze_seite: furnaceSide,
+  schmelze_front: furnaceFront(false),
+  schmelze_front_an: furnaceFront(true),
+  schmelze_oben: px2(furnaceTop),
+  truhe_oben: chestTop,
+  truhe_seite: chestSide,
+  fackel: torch,
+  lumiterz: ore([0x4e2780, 0x7a44b8, 0xa572e6, 0xe6ccff], 'facet'),
+  beerenstrauch: px2(berryBush),
+  fichte_rinde: px2(bark(P2.spruceBark, 0x24180f)),
+  fichte_kern: rings(P2.spruceWood, P2.spruceBark[1]),
+  fichte_nadeln: px2(leaves(P2.spruceLeaf)),
+  fichte_bretter: planks(P2.spruceWood),
+  sumpf_laub: px2(leaves(P2.swampLeaf)),
+  stock: stick,
+  kohle: coal,
+  eisenbarren: ingot,
+  lumit: lumitGem,
+  apfel: apple,
+  waldbeeren: berries,
+  holz_spitzhacke: tool('holz', 'spitzhacke'),
+  holz_schaufel: tool('holz', 'schaufel'),
+  holz_axt: tool('holz', 'axt'),
+  holz_schwert: tool('holz', 'schwert'),
+  stein_spitzhacke: tool('stein', 'spitzhacke'),
+  stein_schaufel: tool('stein', 'schaufel'),
+  stein_axt: tool('stein', 'axt'),
+  stein_schwert: tool('stein', 'schwert'),
+  eisen_spitzhacke: tool('eisen', 'spitzhacke'),
+  eisen_schaufel: tool('eisen', 'schaufel'),
+  eisen_axt: tool('eisen', 'axt'),
+  eisen_schwert: tool('eisen', 'schwert'),
+  lumit_spitzhacke: tool('lumit', 'spitzhacke'),
+  lumit_schaufel: tool('lumit', 'schaufel'),
+  lumit_axt: tool('lumit', 'axt'),
+  lumit_schwert: tool('lumit', 'schwert'),
+  eisen_helm: armor('eisen', 'helm'),
+  eisen_brustpanzer: armor('eisen', 'brustpanzer'),
+  eisen_beinschutz: armor('eisen', 'beinschutz'),
+  eisen_stiefel: armor('eisen', 'stiefel'),
+  lumit_helm: armor('lumit', 'helm'),
+  lumit_brustpanzer: armor('lumit', 'brustpanzer'),
+  lumit_beinschutz: armor('lumit', 'beinschutz'),
+  lumit_stiefel: armor('lumit', 'stiefel'),
 };
 
 /** Erzeugt die Pixel einer Textur (deterministisch). */
