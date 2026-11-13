@@ -18,7 +18,8 @@
     "test": "vitest run",
     "perf": "vitest run packages/shared/test/perf.test.ts",
     "e2e": "playwright test",
-    "textures:gallery": "pnpm --filter @blockcraft/texturegen gallery"
+    "textures:gallery": "pnpm --filter @blockcraft/texturegen gallery",
+    "promo": "node tools/promo/capture.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

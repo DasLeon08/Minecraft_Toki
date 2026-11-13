@@ -10,3 +10,4 @@ test-results/
 playwright-report/
 tools/texturegen/out/
 .vite/
+docs/toki/_bg-*.png

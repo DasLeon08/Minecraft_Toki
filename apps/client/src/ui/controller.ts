@@ -257,7 +257,9 @@ function exposeTestHooks(): void {
       return { locked: game.input.locked, target: t ? { x: t.x, y: t.y, z: t.z, id: t.id } : null, held: game.player.held()?.id ?? null };
     },
     stats() {
-      return game ? { ...game.renderer.stats, meshes: game.renderer.chunks.count, loaded: game.world.columns.size } : null;
+      return game
+        ? { ...game.renderer.stats, meshes: game.renderer.chunks.count, loaded: game.world.columns.size, pending: game.pendingWork }
+        : null;
     },
     findBlock(id: number, radius = 48) {
       const b = game?.player.body;

@@ -224,6 +224,11 @@ export class Game {
     this.raf = requestAnimationFrame(this.frame);
   }
 
+  /** Noch zu ladende bzw. zu meshende Arbeit (für Tests/Aufnahmen). */
+  get pendingWork(): number {
+    return (this.streamer?.pendingMeshes ?? 0) + (this.streamer?.loadingCount ?? 0);
+  }
+
   get mode(): 'creative' | 'survival' {
     return this.simPlayer.mode;
   }
