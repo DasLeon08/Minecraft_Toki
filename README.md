@@ -62,6 +62,7 @@ pnpm dev:server           # Server (WebSocket/Health) unter :8080
 | `pnpm e2e` | Browser-Tests (Playwright; vorher `pnpm build`) |
 | `pnpm lint` / `pnpm typecheck` | Codequalität |
 | `pnpm textures:gallery` | Texturen als PNG nach `tools/texturegen/out/` |
+| `pnpm export:web` | fertigen Web-Export in den Hauptordner kopieren (`index.html` usw.) |
 
 URL-Parameter: `?debug=1` (Debug), `?bench=60` (60-s-Benchmark mit Sichtweite 8), `?pixel=1|2|4` (Texturstil überschreiben).
 
@@ -97,7 +98,10 @@ Multiplayer-Beitritt danach dauert bis ca. 1 min. Der Singleplayer ist davon nic
 
 Einbettung (z. B. Toki): siehe [docs/EMBEDDING.md](docs/EMBEDDING.md).
 
-**Upload auf Toki:** Repo `DasLeon08/Minecraft_Toki`, Branch **`toki`**. Der Branch enthält nur
+**Upload auf Toki:** Im Hauptordner des Repos liegt der fertige Web-Export (`index.html`,
+`assets/`, `sw.js`, `favicon.svg`) – diesen Ordner (bzw. das entpackte ZIP von `main`) bei Toki
+auswählen. Er wird von der Action `Toki-Build` automatisch aktuell gehalten (lokal: `pnpm export:web`).
+Alternativ enthält der Branch **`toki`** nur den Web-Export ohne Quellcode. Der Branch enthält nur
 den fertigen Build und wird von der Action `Toki-Build` bei jedem Push auf `main` erneuert.
 Bilder und Texte für die Spieleseite: [docs/toki/](docs/toki/README.md).
 

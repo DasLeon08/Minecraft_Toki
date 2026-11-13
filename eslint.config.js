@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/out/**', '**/node_modules/**', 'test-results/**', 'playwright-report/**', 'apps/client/public/sw.js'] },
+  { ignores: ['**/dist/**', '**/out/**', '**/node_modules/**', 'test-results/**', 'playwright-report/**', 'apps/client/public/sw.js', 'assets/**', 'sw.js'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

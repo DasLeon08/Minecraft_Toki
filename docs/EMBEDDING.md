@@ -1,11 +1,15 @@
 # Einbettung (z. B. auf Toki)
 
-## Upload auf Toki: Repo + Branch `toki`
+## Upload auf Toki
 
-Bei Toki gibst du an:
+Toki will einen Ordner, in dem `index.html` direkt liegt. Zwei Möglichkeiten:
 
-- **Repo:** `DasLeon08/Minecraft_Toki`
-- **Branch:** `toki`
+1. **Hauptordner des Repos:** Dort liegt der fertige Web-Export (`index.html`, `assets/`,
+   `sw.js`, `favicon.svg`) direkt neben dem Quellcode. ZIP von `main` laden
+   (https://github.com/DasLeon08/Minecraft_Toki/archive/refs/heads/main.zip), entpacken und den Ordner
+   `Minecraft_Toki-main` auswählen – oder einfach deinen geklonten Repo-Ordner.
+2. **Nur das Spiel ohne Quellcode:** Branch `toki`
+   (https://github.com/DasLeon08/Minecraft_Toki/archive/refs/heads/toki.zip), entpackt `Minecraft_Toki-toki`.
 
 Der Branch `toki` enthält nur das fertige Spiel (`index.html` im Root, `assets/`, `sw.js`,
 `favicon.svg`). Die GitHub Action `.github/workflows/toki.yml` baut ihn bei jedem Push auf

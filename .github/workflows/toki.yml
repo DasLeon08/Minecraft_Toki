@@ -33,6 +33,19 @@ jobs:
         run: pnpm --filter @blockcraft/client build
       - name: Prüfen, dass index.html im Build-Root liegt
         run: test -f apps/client/dist/index.html
+      - name: Web-Export im Hauptordner von main aktualisieren
+        # Pushes mit GITHUB_TOKEN lösen keine weiteren Workflows aus (keine Schleife).
+        run: |
+          node tools/export-web.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html assets sw.js favicon.svg
+          if git diff --cached --quiet; then
+            echo "Web-Export ist aktuell."
+          else
+            git commit -q -m "Web-Export aktualisieren (${GITHUB_SHA::7})"
+            git push origin HEAD:main
+          fi
       - name: Nach Branch toki veröffentlichen
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
