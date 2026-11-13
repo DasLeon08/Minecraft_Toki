@@ -346,6 +346,7 @@ Jede Phase endet mit: CI grün (Lint, Typecheck, Unit, E2E), Benchmark-Werte im 
 
 ## Entscheidungen während der Umsetzung
 
+- **Hosting** (13.11.2026): Das Spiel läuft auf **Toki** (statischer Build im Branch `toki`, automatisch per Action `Toki-Build`). **Render nur für den Multiplayer-Server.** Damit betrifft der Render-Free-Kaltstart den Singleplayer nicht mehr; der Client verbindet sich über `VITE_SERVER_URL` (GitHub-Variable) mit Render, der Server erlaubt die Toki-Origin über `ALLOWED_ORIGINS`.
 - **Texturstil** (12.11.2026): wählbar im Einstellungsmenü – *Fein* (16×16), *Pixelig* (2×2-Pixel, **Standard**), *Sehr pixelig* (4×4-Pixel). Live umschaltbar; `?pixel=1|2|4` überschreibt den Stil für Vergleiche.
 - **Env-Validierung**: eigener, abhängigkeitsfreier Validator in `packages/shared/src/config/env.ts` statt `zod` (kleineres Client-Bundle, gleiche Funktion).
 - **Benchmarks**: Vitest 5 hat keine `bench`-API mehr → Performance-Budgets als normale Tests (`packages/shared/test/perf.test.ts`).

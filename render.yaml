@@ -1,32 +1,22 @@
-# Render Blueprint: ein Web Service liefert den Client UND den Spielserver aus.
-# In Render: «New» → «Blueprint» → dieses Repository wählen.
+# Render Blueprint: nur der Multiplayer-Spielserver (WebSocket + Health-Check).
+# Das Spiel selbst läuft auf Toki (Branch `toki`). In Render: «New» → «Blueprint» → dieses Repository.
 services:
   - type: web
-    name: blockcraft
+    name: blockcraft-server
     runtime: node
     plan: free
     branch: main
     autoDeploy: true
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @blockcraft/server build
     startCommand: node apps/server/dist/index.js
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
         value: '22'
-      # Client-Variablen werden beim Build eingebacken (öffentlich!)
-      - key: VITE_SERVER_URL
-        value: ''
-      - key: VITE_DEBUG
-        value: 'false'
-      - key: VITE_DEFAULT_RENDER_DISTANCE
-        value: '8'
-      - key: VITE_MAX_RENDER_DISTANCE
-        value: '16'
-      - key: VITE_DAY_LENGTH_SECONDS
-        value: '1200'
-      # Server
+      # Herkunft(en), von denen das Spiel per WebSocket verbinden darf (kommagetrennt).
+      # Anpassen, falls Toki die Spiele unter einer anderen Domain ausliefert.
       - key: ALLOWED_ORIGINS
-        value: ''
+        value: https://toki-ashy.vercel.app
       - key: MAX_ROOMS
         value: '3'
       - key: MAX_PLAYERS_PER_ROOM

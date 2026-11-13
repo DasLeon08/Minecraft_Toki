@@ -78,15 +78,22 @@ docs/            Plan, Namen, Rechtliches, Abnahme-Checklisten
 Die Spiellogik (`packages/shared/src/sim`) läuft im Singleplayer im Browser und ab
 Phase 3 identisch auf dem Server (autoritativer Multiplayer mit Raumcodes).
 
-## Deploy (Render)
+## Hosting
+
+- **Spiel (Client):** auf Toki, aus dem Branch `toki` (statische Dateien, siehe unten).
+- **Render:** nur der Multiplayer-Spielserver (ab Phase 3). Der Singleplayer braucht Render nicht.
+
+### Render einrichten (Multiplayer)
 
 1. Auf [render.com](https://render.com) mit GitHub verbinden.
 2. «New» → «Blueprint» → dieses Repository → `render.yaml` wird erkannt.
-3. Nach dem Deploy: `https://<dienst>.onrender.com` spielen, `…/health` prüfen.
+3. Nach dem Deploy `https://<dienst>.onrender.com/health` prüfen.
+4. In GitHub unter *Settings → Secrets and variables → Actions → Variables* die Variable
+   `VITE_SERVER_URL` auf diese Render-URL setzen – der nächste Toki-Build verbindet sich dann dorthin.
+5. In `render.yaml` bzw. bei Render `ALLOWED_ORIGINS` auf die Domain setzen, unter der Toki das Spiel ausliefert.
 
-Hinweis Free-Plan: Der Dienst schläft nach ca. 15 min ohne Aufrufe ein; der erste
-Aufruf danach dauert bis ca. 1 min. Wiederkehrende Spieler starten dank Service
-Worker trotzdem sofort in den Singleplayer.
+Hinweis Free-Plan: Der Server schläft nach ca. 15 min ohne Verbindungen ein; der erste
+Multiplayer-Beitritt danach dauert bis ca. 1 min. Der Singleplayer ist davon nicht betroffen.
 
 Einbettung (z. B. Toki): siehe [docs/EMBEDDING.md](docs/EMBEDDING.md).
 

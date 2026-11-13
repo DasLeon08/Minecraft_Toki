@@ -27,6 +27,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Client bauen
+        # Adresse des Multiplayer-Servers auf Render (Repo → Settings → Variables → VITE_SERVER_URL)
+        env:
+          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
         run: pnpm --filter @blockcraft/client build
       - name: Prüfen, dass index.html im Build-Root liegt
         run: test -f apps/client/dist/index.html

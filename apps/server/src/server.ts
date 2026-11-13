@@ -50,6 +50,12 @@ export function startServer(config: ServerConfig, log: Logger, rootDir = process
     }
     if (req.method === 'GET' || req.method === 'HEAD') {
       if (serveStatic(req, res)) return;
+      if (url.pathname === '/') {
+        // Ohne mitgelieferten Client (Normalfall auf Render): kurzer Hinweis statt 404
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(`${GAME_NAME}-Spielserver ${GAME_VERSION} läuft. Das Spiel selbst gibt es auf der Spieleseite (Toki).`);
+        return;
+      }
     }
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Nicht gefunden');

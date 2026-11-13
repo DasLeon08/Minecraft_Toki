@@ -44,6 +44,16 @@ describe('Server', () => {
     expect((await fetch(`${base}/../../etc/passwd`)).status).not.toBe(500);
   });
 
+  it('ohne Client-Build zeigt / einen Hinweis statt 404', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bc-empty-'));
+    const config = loadConfig({ PORT: '0', CLIENT_DIST_DIR: dir, LOG_LEVEL: 'error' });
+    const s2 = await startServer(config, createLogger('error'), '/');
+    const res = await fetch(`http://127.0.0.1:${s2.port}/`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('Spielserver');
+    await s2.close();
+  });
+
   it('WebSocket-Echo funktioniert', async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
     const messages: string[] = [];
