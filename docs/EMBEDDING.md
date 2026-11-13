@@ -1,5 +1,20 @@
 # Einbettung (z. B. auf Toki)
 
+## Upload auf Toki: Repo + Branch `toki`
+
+Bei Toki gibst du an:
+
+- **Repo:** `DasLeon08/Minecraft_Toki`
+- **Branch:** `toki`
+
+Der Branch `toki` enthält nur das fertige Spiel (`index.html` im Root, `assets/`, `sw.js`,
+`favicon.svg`). Die GitHub Action `.github/workflows/toki.yml` baut ihn bei jedem Push auf
+`main` automatisch neu (oder manuell über «Actions → Toki-Build → Run workflow»).
+Bitte nichts von Hand in `toki` ändern – der Branch wird jedes Mal überschrieben.
+
+Falls Toki keinen Branch auswählen lässt: In GitHub unter *Settings → Branches* den
+Standard-Branch auf `toki` stellen. Render bleibt davon unberührt (`render.yaml` nutzt `main`).
+
 Der Build ist eine normale Webseite mit `index.html` als Einstieg und nur relativen
 Pfaden. Er funktioniert auf jedem Host und in iframes.
 

@@ -1,0 +1,45 @@
+name: Toki-Build
+
+# Baut den Client und veröffentlicht die fertigen Dateien (index.html im Root)
+# im Branch `toki`. Diesen Branch gibst du bei Toki als Quelle an.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: toki-build
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Client bauen
+        run: pnpm --filter @blockcraft/client build
+      - name: Prüfen, dass index.html im Build-Root liegt
+        run: test -f apps/client/dist/index.html
+      - name: Nach Branch toki veröffentlichen
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd apps/client/dist
+          touch .nojekyll
+          printf '# Blockcraft – fertiger Build\n\nAutomatisch erzeugt aus `main` (Commit %s). Nicht von Hand ändern.\n' "${GITHUB_SHA::7}" > README.md
+          git init -q -b toki
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Build aus main ${GITHUB_SHA::7}"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" toki

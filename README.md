@@ -90,6 +90,10 @@ Worker trotzdem sofort in den Singleplayer.
 
 Einbettung (z. B. Toki): siehe [docs/EMBEDDING.md](docs/EMBEDDING.md).
 
+**Upload auf Toki:** Repo `DasLeon08/Minecraft_Toki`, Branch **`toki`**. Der Branch enthält nur
+den fertigen Build und wird von der Action `Toki-Build` bei jedem Push auf `main` erneuert.
+Bilder und Texte für die Spieleseite: [docs/toki/](docs/toki/README.md).
+
 ## Branches
 
 | Branch | Zweck |
@@ -97,4 +101,5 @@ Einbettung (z. B. Toki): siehe [docs/EMBEDDING.md](docs/EMBEDDING.md).
 | `main` | Produktion (Render deployt automatisch) |
 | `backup` | Spiegel von `main` (GitHub Action: Tags, wöchentlich, manuell) |
 | `legacy` | alte Version (eingefroren) |
+| `toki` | fertiger Build für Toki (automatisch aus `main`, nicht von Hand ändern) |
 | Feature-Branches | Entwicklung → Pull Request → `main` |
