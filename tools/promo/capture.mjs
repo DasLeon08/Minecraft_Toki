@@ -1,12 +1,14 @@
 /* global fetch, setTimeout, localStorage */
 /**
- * Erzeugt Titelbild, Banner und Screenshots für die Spieleseite (Toki) aus dem echten Spiel.
+ * Erzeugt die Screenshots für die Spieleseite (Toki) aus dem echten Spiel.
+ * Titelbild und Banner sind flache Pixel-Art (tools/texturegen/src/pixelart.ts, `pnpm promo:pixel`).
  * Voraussetzung: `pnpm build`. Aufruf: `pnpm promo` → docs/toki/
  *
- * Optional: `pnpm promo -- landschaft basis` rendert nur ausgewählte Szenen.
+ * Optional: `pnpm promo -- landschaft mehrspieler` rendert nur ausgewählte Szenen
+ * (zusätzlich verfügbar: `nacht`).
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
@@ -18,7 +20,8 @@ const BASE = `http://localhost:${PORT}`;
 mkdirSync(OUT, { recursive: true });
 
 const only = process.argv.slice(2);
-const want = (name) => only.length === 0 || only.includes(name);
+const DEFAULT_SCENES = ['landschaft', 'basis', 'werktisch', 'mehrspieler'];
+const want = (name) => (only.length === 0 ? DEFAULT_SCENES.includes(name) : only.includes(name));
 
 const HIDE_ALL = `.hud, .notice, .click-to-play, .debug { display: none !important; }`;
 const HIDE_UI_NOISE = `.notice, .click-to-play, .debug, .held-name { display: none !important; }`;
@@ -93,8 +96,6 @@ const SCENES = {
     });
     await settle(page);
     const file = await shot(page, 'screenshot-1-landschaft.jpg', HIDE_ALL);
-    // Variante ohne Kompression als Hintergrund für Titelbild/Banner
-    await shot(page, '_bg-landschaft.png', HIDE_ALL, 'png');
     await page.close();
     return file;
   },
@@ -252,51 +253,124 @@ const SCENES = {
       bc.setTime(24000 * 0.82);
     });
     await settle(page);
-    const file = await shot(page, 'screenshot-4-nacht.jpg', HIDE_ALL);
+    const file = await shot(page, 'extra-nacht.jpg', HIDE_ALL);
     await page.close();
     return file;
   },
+  /** Mehrspieler: zwei Browser im selben Raum, der Gast baut, beide chatten. */
+  async mehrspieler(browser) {
+    const open = async () => {
+      const ctx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+      const page = await ctx.newPage();
+      await page.addInitScript(() => localStorage.setItem('bc.settings.v1', JSON.stringify({ renderDistance: 8 })));
+      await page.goto(`${BASE}/?test=1&nosw=1&pixel=2`);
+      await page.waitForFunction(() => window.__bc?.screen === 'menu', null, { timeout: 30_000 });
+      return { ctx, page };
+    };
+    const ready = (page) => page.waitForFunction(() => window.__bc.ready, null, { timeout: 120_000 });
+    const host = await open();
+    await host.page.evaluate(() => window.__bc.create('Gemeinsame Welt', 'Abenteuer', 'creative'));
+    await ready(host.page);
+    // Ebener Platz mit halbfertigem Turm und Fackeln, Host steht in der Mitte
+    const base = await host.page.evaluate(() => {
+      const bc = window.__bc;
+      const p = bc.player();
+      const hx = Math.floor(p.x);
+      const hz = Math.floor(p.z);
+      let g = 120;
+      while (g > 0 && [0, 20, 21, 22, 35].includes(bc.getBlock(hx, g, hz))) g--;
+      for (let dx = -9; dx <= 9; dx++)
+        for (let dz = -12; dz <= 6; dz++) {
+          bc.setBlock(hx + dx, g, hz + dz, Math.abs(dx) <= 1 && dz < 0 ? 18 : 3);
+          for (let y = 1; y < 10; y++) bc.setBlock(hx + dx, g + y, hz + dz, 0);
+          for (let y = 1; y < 3; y++) bc.setBlock(hx + dx, g - y, hz + dz, 2);
+        }
+      const tx = hx - 4;
+      const tz = hz - 8;
+      for (let y = 1; y <= 4; y++)
+        for (let dx = 0; dx < 3; dx++)
+          for (let dz = 0; dz < 3; dz++) {
+            const edge = dx !== 1 || dz !== 1;
+            if (edge && (y < 4 || dx === 0)) bc.setBlock(tx + dx, g + y, tz + dz, y === 4 ? 10 : 19);
+          }
+      for (const [dx, dz] of [
+        [2, -3],
+        [-2, -3],
+        [2, -9],
+        [3, 2],
+      ])
+        bc.setBlock(hx + dx, g + 1, hz + dz, 33);
+      bc.setBlock(hx + 4, g + 1, hz - 6, 29);
+      bc.teleport(hx + 0.5, g + 1, hz + 0.5, false);
+      return { hx, hz, g, tx, tz };
+    });
+    await host.page.evaluate(() => window.__bc.save());
+    await host.page.evaluate(() => window.__bc.quit());
+    await host.page.waitForFunction(() => window.__bc.screen === 'worlds');
+    const id = await host.page.evaluate(() => window.__bc.worlds().find((w) => w.name === 'Gemeinsame Welt').id);
+    await host.page.evaluate((id) => window.__bc.host(id, 'Anna'), id);
+    await ready(host.page);
+    const code = (await host.page.evaluate(() => window.__bc.room())).code;
+
+    const guest = await open();
+    await guest.page.evaluate((code) => window.__bc.join(code, 'Ben'), code);
+    await ready(guest.page);
+    for (const p of [host.page, guest.page]) await p.waitForFunction(() => window.__bc.remotePlayers() === 1, null, { timeout: 30_000 });
+
+    // Gast geht in kleinen Schritten zum Turm (grosse Sprünge setzt der Server zurück)
+    const target = { x: base.tx + 3.5, z: base.tz + 3.2 };
+    for (let i = 0; i < 60; i++) {
+      const done = await guest.page.evaluate(
+        ({ target, g }) => {
+          const bc = window.__bc;
+          const p = bc.player();
+          const dx = target.x - p.x;
+          const dz = target.z - p.z;
+          const d = Math.hypot(dx, dz);
+          if (d < 0.2) return true;
+          const s = Math.min(0.3, d) / d;
+          bc.teleport(p.x + dx * s, g + 1, p.z + dz * s, false);
+          return false;
+        },
+        { target, g: base.g },
+      );
+      if (done) break;
+      await guest.page.waitForTimeout(70);
+    }
+    await guest.page.evaluate(
+      ({ base }) => {
+        const bc = window.__bc;
+        bc.look(Math.atan2(1.5, 1.7), -0.35);
+        bc.send({ t: 'selectSlot', slot: 1 });
+        bc.setBlock(base.tx + 1, base.g + 4, base.tz + 2, 19);
+        bc.sendChat('Hallo Anna! Der Turm ist fast fertig.');
+      },
+      { base },
+    );
+    await host.page.waitForTimeout(600);
+    await host.page.evaluate(() => window.__bc.sendChat('Super! Ich hole noch Fackeln.'));
+    await host.page.evaluate(
+      ({ base, target }) => {
+        const bc = window.__bc;
+        const p = bc.player();
+        const dx = target.x - 1.2 - p.x;
+        const dz = target.z - 1.5 - p.z;
+        bc.look(Math.atan2(-dx, -dz), -0.12);
+        bc.simulateLock();
+        void base;
+      },
+      { base, target },
+    );
+    await host.page.waitForFunction(() => window.__bc.chat().length >= 2, null, { timeout: 20_000 });
+    await settle(host.page, 2000);
+    const file = await shot(host.page, 'screenshot-4-mehrspieler.jpg', HIDE_UI_NOISE);
+    await host.page.evaluate(() => window.__bc.quit());
+    await host.page.waitForTimeout(1500);
+    await guest.ctx.close();
+    await host.ctx.close();
+    return file;
+  },
 };
-
-// ---------------------------------------------------------------------------
-// Titelbild und Banner (HTML-Vorlage über dem Landschafts-Screenshot)
-// ---------------------------------------------------------------------------
-
-function logoHtml(bg, w, h, layout) {
-  const letters = 'BLOCKCRAFT'
-    .split('')
-    .map((c, i) => `<span style="--i:${i}">${c}</span>`)
-    .join('');
-  const size = layout === 'banner' ? 150 : layout === 'square' ? 150 : 140;
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-    html,body{margin:0;width:${w}px;height:${h}px;overflow:hidden;font-family:'Trebuchet MS','DejaVu Sans',sans-serif}
-    .bg{position:absolute;inset:0;background:url(data:image/png;base64,${bg}) center/cover}
-    .shade{position:absolute;inset:0;background:${
-      layout === 'banner'
-        ? 'linear-gradient(90deg,rgba(10,15,30,.78) 0%,rgba(10,15,30,.45) 42%,rgba(10,15,30,0) 70%)'
-        : 'linear-gradient(180deg,rgba(10,15,30,.55) 0%,rgba(10,15,30,.05) 45%,rgba(10,15,30,0) 60%,rgba(10,15,30,.55) 100%)'
-    }}
-    .wrap{position:absolute;${layout === 'banner' ? 'left:90px;top:0;bottom:0;justify-content:center;align-items:flex-start' : 'left:0;right:0;top:9%;align-items:center'};display:flex;flex-direction:column;gap:18px}
-    .logo{margin:0;font-size:${size}px;font-weight:900;letter-spacing:.03em;display:flex}
-    .logo span{display:inline-block;color:#f2b544;text-shadow:0 6px 0 #c98a1c,0 12px 0 #7a5410,0 18px 34px rgba(0,0,0,.55);transform:rotate(calc((var(--i) - 4.5) * .8deg)) translateY(calc(sin(var(--i) * 1rad) * 6px))}
-    .tag{color:#eef2f7;font-size:${layout === 'banner' ? 40 : 34}px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;text-shadow:0 3px 10px rgba(0,0,0,.7)}
-    .badge{position:absolute;right:28px;bottom:24px;color:#fff;background:rgba(10,15,30,.7);border:3px solid #f2b544;border-radius:14px;padding:10px 18px;font-size:26px;font-weight:800;letter-spacing:.05em}
-  </style></head><body><div class="bg"></div><div class="shade"></div>
-  <div class="wrap"><h1 class="logo">${letters}</h1><div class="tag">Bauen · Graben · Überleben</div></div>
-  ${layout === 'banner' ? '<div class="badge">Jetzt im Browser spielen</div>' : ''}
-  </body></html>`;
-}
-
-async function composite(browser, bgFile, file, w, h, layout) {
-  const bg = readFileSync(bgFile).toString('base64');
-  const page = await browser.newPage({ viewport: { width: w, height: h } });
-  await page.setContent(logoHtml(bg, w, h, layout));
-  await page.waitForTimeout(200);
-  const path = join(OUT, file);
-  await page.screenshot({ path, type: 'png' });
-  await page.close();
-  console.log(`  ✓ ${file} (${Math.round(statSync(path).size / 1024)} KB)`);
-}
 
 // ---------------------------------------------------------------------------
 
@@ -307,13 +381,6 @@ try {
     if (!want(name)) continue;
     console.log(`Szene «${name}» …`);
     await fn(browser);
-  }
-  if (want('landschaft') || want('titel')) {
-    const bg = join(OUT, '_bg-landschaft.png');
-    console.log('Titelbild und Banner …');
-    await composite(browser, bg, 'titelbild.png', 1200, 900, 'title');
-    await composite(browser, bg, 'titelbild-quadrat.png', 1024, 1024, 'square');
-    await composite(browser, bg, 'banner.png', 1600, 800, 'banner');
   }
 } finally {
   await browser.close();

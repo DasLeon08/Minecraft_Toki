@@ -208,8 +208,9 @@ export async function hostWorld(meta: WorldMeta, name: string): Promise<void> {
 export async function joinRoom(codeInput: string, name: string): Promise<void> {
   if (mpBusy) return;
   const code = normalizeRoomCode(codeInput);
-  if (code.length !== 6) {
-    mpStatus.value = 'Der Raumcode hat 6 Zeichen.';
+  // Länge legt der Server fest (ROOM_CODE_LENGTH, 4–12)
+  if (code.length < 4 || code.length > 12) {
+    mpStatus.value = 'Bitte den ganzen Raumcode eingeben.';
     return;
   }
   mpBusy = true;

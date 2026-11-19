@@ -328,7 +328,10 @@ Touch-Steuerung (virtueller Stick, Tippen zum Platzieren, Halten zum Abbauen), a
 
 ## 15. Offene Fragen an dich
 
-Bereits geklärt: Name Blockcraft (siehe Hinweis §14), Multiplayer in Phase 3, alles auf Render, Render Free.
+Bereits geklärt: Name Blockcraft (siehe Hinweis §14), Multiplayer in Phase 3, Render Free.
+Geändert: Das Spiel liegt auf Toki (Web-Export im Repo-Root und Branch `toki`), Render betreibt nur den
+Multiplayer-Server. Die Welt eines Raums gehört dem Host und wird in seinen Browser zurückgespeichert
+(Render braucht keine Disk). Look: komplett pixelig mit eigener Pixel-Schrift.
 
 Noch offen (kann ich mit den Standardwerten in Klammern beantworten, wenn du nichts angibst):
 1. **Name**: Bleibt es trotz des Markenhinweises bei «Blockcraft»? (Standard: ja, als Arbeitstitel)

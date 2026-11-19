@@ -6,7 +6,8 @@
   "description": "Exportiert die prozeduralen Texturen als PNG-Galerie (zur Prüfung der Pixel-Art)",
   "scripts": {
     "gallery": "esbuild src/gallery.ts --bundle --platform=node --format=esm --outfile=out/gallery.mjs --log-level=warning && node out/gallery.mjs",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "pixelart": "esbuild src/pixelart.ts --bundle --platform=node --format=esm --outfile=out/pixelart.mjs --log-level=warning && node out/pixelart.mjs"
   },
   "dependencies": {
     "@blockcraft/shared": "workspace:*"

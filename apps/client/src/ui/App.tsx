@@ -566,7 +566,7 @@ function MultiplayerScreen() {
               <input
                 class="code-input"
                 value={code}
-                maxLength={8}
+                maxLength={14}
                 placeholder="z. B. K7QX2M"
                 onInput={(e) => setCode((e.target as HTMLInputElement).value.toUpperCase())}
                 onKeyDown={(e) => {
@@ -574,7 +574,7 @@ function MultiplayerScreen() {
                 }}
               />
             </label>
-            <Button kind="primary" disabled={!nameOk || code.trim().length < 6} onClick={() => void joinRoom(code, name.trim())}>
+            <Button kind="primary" disabled={!nameOk || code.trim().length < 4} onClick={() => void joinRoom(code, name.trim())}>
               Beitreten
             </Button>
           </section>

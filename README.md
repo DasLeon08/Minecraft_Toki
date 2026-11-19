@@ -6,9 +6,16 @@ Bauen, graben, entdecken – in einer prozedural generierten, unendlichen Blockw
 > Arbeitstitel. Alle Namen, Texturen, Sounds und der Code sind eigenständig
 > (siehe [docs/LEGAL.md](docs/LEGAL.md) und [docs/NAMING.md](docs/NAMING.md)).
 
-## Stand: Phase 2 (Survival-Kern)
+## Stand: Phase 3 (Multiplayer)
 
-**Neu in Phase 2**
+**Neu in Phase 3**
+- Mehrspieler über Raumcodes: eigene Welt als Raum öffnen, Freunde treten mit dem 6-stelligen Code bei
+- Gemeinsame Welt auf dem Render-Server (gleiche Simulation wie im Singleplayer), andere Spieler als Figuren mit Namensschild
+- Chat (T), Spielerliste (Tab), Raumcode mit Kopier-Knopf im Pausemenü
+- Die Welt bleibt beim Host: Änderungen werden laufend und beim Verlassen in seinen Browser zurückgespeichert
+- Komplett kantiger Pixel-Look mit eigener Pixel-Schrift für Logo, Überschriften und Buttons
+
+**Aus Phase 2**
 - Überlebensmodus: Leben, Hunger, Sättigung, Luft, Fallschaden, Ertrinken, Verhungern, Tod und Wiederbeleben
 - Abbauen mit Fortschritt und Rissen, Werkzeuge in vier Stufen (Holz, Stein, Eisen, Lumit) mit Haltbarkeit, Drops als Items in der Welt
 - Inventar mit 2×2-Crafting und Rüstung, Werktisch (3×3), Schmelze, Truhe, rund 40 Rezepte, Kreativ-Katalog mit Suche
@@ -38,6 +45,8 @@ Bauen, graben, entdecken – in einer prozedural generierten, unendlichen Blockw
 | 1–9, Mausrad | Hotbar-Platz wählen |
 | E | Inventar (im Kreativmodus mit Katalog) |
 | Q (Strg+Q) | Item (Stapel) fallen lassen |
+| T | Chat (im Mehrspieler) · Enter senden |
+| Tab (halten) | Spielerliste (im Mehrspieler) |
 | F3 | Debug-Anzeige |
 | Esc | Pause |
 
@@ -70,31 +79,45 @@ URL-Parameter: `?debug=1` (Debug), `?bench=60` (60-s-Benchmark mit Sichtweite 8)
 
 ```
 apps/client      Browser-Spiel (Vite, Three.js, Preact-UI)
-apps/server      Render-Dienst: liefert den Client aus + WebSocket-Spielserver
+apps/server      Render-Dienst: Multiplayer-Spielserver (Räume, WebSocket, Health-Check)
 packages/shared  Gemeinsame Logik: Blöcke, Welt, Generierung, Licht, Mesher, Physik, Simulation
 tools/texturegen Export der prozeduralen Texturen
 docs/            Plan, Namen, Rechtliches, Abnahme-Checklisten
 ```
 
-Die Spiellogik (`packages/shared/src/sim`) läuft im Singleplayer im Browser und ab
-Phase 3 identisch auf dem Server (autoritativer Multiplayer mit Raumcodes).
+Die Spiellogik (`packages/shared/src/sim`) läuft im Singleplayer im Browser und im
+Multiplayer identisch auf dem Server (autoritativ, Räume mit Code).
 
 ## Hosting
 
 - **Spiel (Client):** auf Toki, aus dem Branch `toki` (statische Dateien, siehe unten).
-- **Render:** nur der Multiplayer-Spielserver (ab Phase 3). Der Singleplayer braucht Render nicht.
+- **Render:** nur der Multiplayer-Spielserver. Der Singleplayer braucht Render nicht.
 
-### Render einrichten (Multiplayer)
+### Multiplayer einrichten (Render)
 
-1. Auf [render.com](https://render.com) mit GitHub verbinden.
-2. «New» → «Blueprint» → dieses Repository → `render.yaml` wird erkannt.
-3. Nach dem Deploy `https://<dienst>.onrender.com/health` prüfen.
+1. Auf [render.com](https://render.com) mit GitHub anmelden.
+2. «New» → «Blueprint» → dieses Repository wählen. `render.yaml` wird erkannt und legt den
+   Dienst `blockcraft-server` (Free-Plan, Branch `main`) an.
+3. Nach dem Deploy `https://<dienst>.onrender.com/health` öffnen – Antwort `{"ok":true,…}`.
 4. In GitHub unter *Settings → Secrets and variables → Actions → Variables* die Variable
-   `VITE_SERVER_URL` auf diese Render-URL setzen – der nächste Toki-Build verbindet sich dann dorthin.
-5. In `render.yaml` bzw. bei Render `ALLOWED_ORIGINS` auf die Domain setzen, unter der Toki das Spiel ausliefert.
+   **`VITE_SERVER_URL`** = `https://<dienst>.onrender.com` anlegen (öffentlich, kein Geheimnis).
+5. Die Action `Toki-Build` einmal manuell starten (*Actions → Toki-Build → Run workflow*) – danach
+   verbindet sich das Spiel auf Toki mit diesem Server.
+6. `ALLOWED_ORIGINS` (in `render.yaml` bzw. im Render-Dashboard) muss die Domain enthalten, unter
+   der Toki das Spiel ausliefert (Standard: `https://toki-ashy.vercel.app`, mehrere kommagetrennt).
+
+**Spielen:** Hauptmenü → «Mehrspieler» → Namen eingeben → eigene Welt wählen → «Raum erstellen».
+Den Code (Pausemenü, «Code kopieren») an Freunde schicken; sie geben ihn unter «Beitreten» ein.
+Verlässt der Host den Raum, wird er geschlossen und die Welt ist beim Host gespeichert.
+
+Weitere Server-Einstellungen (Limits, Tick-Rate, Sichtweite, Tageslänge) stehen in `.env.example`.
 
 Hinweis Free-Plan: Der Server schläft nach ca. 15 min ohne Verbindungen ein; der erste
-Multiplayer-Beitritt danach dauert bis ca. 1 min. Der Singleplayer ist davon nicht betroffen.
+Multiplayer-Beitritt danach dauert bis ca. 1 min («Server startet …»). Mit 0,1 CPU dauert auch das
+erste Laden neuer Chunks etwas. Der Singleplayer ist davon nicht betroffen.
+
+Lokal testen: `pnpm build && pnpm start` startet Server und Client zusammen unter
+`http://localhost:8080` – zwei Browserfenster öffnen, eines erstellt den Raum, das andere tritt bei.
 
 Einbettung (z. B. Toki): siehe [docs/EMBEDDING.md](docs/EMBEDDING.md).
 
@@ -109,7 +132,7 @@ Bilder und Texte für die Spieleseite: [docs/toki/](docs/toki/README.md).
 
 | Branch | Zweck |
 |---|---|
-| `main` | Produktion (Render deployt automatisch) |
+| `main` | Produktion (Render deployt den Multiplayer-Server automatisch) |
 | `backup` | Spiegel von `main` (GitHub Action: Tags, wöchentlich, manuell) |
 | `legacy` | alte Version (eingefroren) |
 | `toki` | fertiger Build für Toki (automatisch aus `main`, nicht von Hand ändern) |
