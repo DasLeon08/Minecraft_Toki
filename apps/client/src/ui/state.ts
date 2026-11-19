@@ -13,6 +13,8 @@ export type Screen =
   | 'paused'
   | 'inventory'
   | 'dead'
+  | 'multiplayer'
+  | 'chat'
   | 'error';
 
 export const screen = signal<Screen>('boot');
@@ -68,3 +70,25 @@ export function showNotice(text: string, ms = 3500): void {
   clearTimeout(noticeTimer);
   noticeTimer = setTimeout(() => (notice.value = null), ms);
 }
+
+export interface ChatLine {
+  from: string;
+  text: string;
+  system: boolean;
+  at: number;
+}
+/** Chatverlauf im Multiplayer. */
+export const chatLog = signal<ChatLine[]>([]);
+
+export interface RoomInfo {
+  code: string;
+  host: boolean;
+  worldName: string;
+  players: string[];
+}
+/** Aktueller Multiplayer-Raum (null im Singleplayer). */
+export const roomInfo = signal<RoomInfo | null>(null);
+/** Statusmeldung beim Verbinden. */
+export const mpStatus = signal('');
+/** Tab gehalten: Spielerliste anzeigen. */
+export const tabHeld = signal(false);

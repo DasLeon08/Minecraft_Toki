@@ -5,6 +5,7 @@
 import type { ItemEntitySnapshot } from '../entity/ItemEntity';
 import type { Slot, WindowKind } from './inventory';
 import type { GameMode, PlayerSnapshot } from './PlayerState';
+import type { LobbyClientMessage, LobbyServerEvent } from '../net/rooms';
 
 export type ClientMessage =
   /** Direktes Setzen (Kreativ/Tests). */
@@ -61,6 +62,10 @@ export type ServerEvent =
   | { t: 'sound'; name: SoundName; x: number; y: number; z: number; block?: number }
   | { t: 'teleport'; x: number; y: number; z: number }
   | { t: 'death'; message: string };
+
+/** Alles, was ein Client senden bzw. empfangen kann (Spiel + Räume). */
+export type AnyClientMessage = ClientMessage | LobbyClientMessage;
+export type AnyServerEvent = ServerEvent | LobbyServerEvent;
 
 export interface Transport {
   send(msg: ClientMessage): void;

@@ -1,9 +1,12 @@
 /**
- * Eine laufende Spielsitzung (Singleplayer): verbindet Welt, Simulation,
+ * Eine laufende Spielsitzung: verbindet Welt, Simulation (lokal) bzw. Server (Multiplayer),
  * Worker, Renderer, Spieler, Sound und Speicherung.
  */
 import {
+  AIR,
+  applyBlockChange,
   BIOME_NAMES,
+  Frame,
   ChunkColumn,
   columnKey,
   DEFAULT_HOTBAR,
@@ -18,10 +21,15 @@ import {
   TICK_SECONDS,
   TICKS_PER_SECOND,
   World,
+  type AnyServerEvent,
+  type ClientMessage,
+  type LobbyServerEvent,
   type PlayerState,
   type ServerEvent,
   type Transport,
 } from '@blockcraft/shared';
+import type { BinaryFrame, WsTransport } from '../net/WsTransport';
+import { PlayerRenderer } from '../render/PlayerRenderer';
 import { Sound } from '../audio/Sound';
 import { env, workerCount } from '../config/env';
 import { Input } from '../input/Input';
@@ -30,6 +38,7 @@ import { Renderer } from '../render/Renderer';
 import { settings } from '../settings';
 import type { WorldMeta, WorldStore } from '../storage/WorldStore';
 import {
+  chatLog,
   deathMessage,
   debugInfo,
   eatProgress,
@@ -41,6 +50,8 @@ import {
   selectedSlot,
   showDebug,
   showNotice,
+  roomInfo,
+  tabHeld,
   underwater,
   windowState,
 } from '../ui/state';
@@ -50,9 +61,18 @@ import { WorkerPool } from '../workers/WorkerPool';
 const AUTOSAVE_SECONDS = 30;
 const SPAWN_RADIUS = 3;
 
+export type JoinedInfo = Extract<LobbyServerEvent, { t: 'joined' }>;
+
+export interface RemoteSession {
+  transport: WsTransport;
+  joined: JoinedInfo;
+}
+
 export interface GameOptions {
   /** Benchmark: nichts speichern, automatischer Kameraflug. */
   bench?: { seconds: number };
+  /** Multiplayer: Verbindung zum Server (sonst Singleplayer mit lokaler Simulation). */
+  remote?: RemoteSession;
 }
 
 export interface BenchResult {
@@ -76,6 +96,15 @@ export class Game {
   readonly sound = new Sound();
   /** Spielerzustand in der Simulation (nur Singleplayer direkt zugreifbar). */
   readonly simPlayer: PlayerState;
+  /** Multiplayer-Sitzung (null im Singleplayer). */
+  readonly remote: RemoteSession | null;
+  readonly players: PlayerRenderer;
+  private remoteTime = 0;
+  private readonly pendingHostWrites = new Set<Promise<void>>();
+  private syncWaiter: (() => void) | null = null;
+  /** Chunks, die vor dem Start des Streamers ankommen (dürfen nicht verloren gehen). */
+  private earlyFrames: BinaryFrame[] = [];
+  private leaving = false;
   private pool: WorkerPool | null = null;
   private streamer: ChunkStreamer | null = null;
   private readonly gen: TerrainGenerator;
@@ -123,12 +152,53 @@ export class Game {
       seed: meta.seed,
     });
     this.simPlayer = this.sim.addPlayer(1, meta.mode);
-    this.transport = new LocalTransport(this.sim, 1);
+    this.remote = options.remote ?? null;
+    this.transport = this.remote ? this.remote.transport : new LocalTransport(this.sim, 1);
     this.renderer = new Renderer(container, meta.seed);
     this.input = new Input(this.renderer.canvas);
-    this.player = new PlayerController(this.world, this.input, (m) => this.transport.send(m));
+    this.player = new PlayerController(this.world, this.input, (m) => this.sendFromPlayer(m));
     this.player.creative = meta.mode === 'creative';
-    this.cleanups.push(this.transport.onEvent((ev) => this.onServerEvent(ev)));
+    this.players = new PlayerRenderer(() => this.remote?.joined.playerId ?? null);
+    this.renderer.scene.add(this.players.group);
+    if (this.remote) {
+      const t = this.remote.transport;
+      this.remoteTime = this.remote.joined.time;
+      this.cleanups.push(t.onAny((ev) => this.onServerEvent(ev)));
+      this.cleanups.push(t.onBinary((f) => this.onFrame(f)));
+      this.cleanups.push(t.onClose((reason) => this.onDisconnect(reason)));
+    } else {
+      this.cleanups.push(this.transport.onEvent((ev) => this.onServerEvent(ev)));
+    }
+  }
+
+  /** Nachrichten des Spielers; im Multiplayer werden Blockänderungen sofort vorhergesagt. */
+  private sendFromPlayer(m: ClientMessage): void {
+    if (this.remote) {
+      if (m.t === 'breakBlock') applyBlockChange(this.world, this.light, m.x, m.y, m.z, AIR);
+      else if (m.t === 'placeBlock') applyBlockChange(this.world, this.light, m.x, m.y, m.z, m.id);
+    }
+    this.transport.send(m);
+  }
+
+  private onFrame(f: BinaryFrame): void {
+    if (f.type === Frame.Chunk) {
+      if (this.streamer) this.streamer.inject(f.cx, f.cz, f.data);
+      else this.earlyFrames.push(f);
+    }
+    else if (f.type === Frame.Sync && this.store && this.remote?.joined.host) {
+      // Rück-Sync des Servers: veränderte Chunks in der eigenen Welt speichern
+      const w = this.store.saveChunks(this.meta.id, [{ cx: f.cx, cz: f.cz, data: f.data.slice() }]);
+      this.pendingHostWrites.add(w);
+      void w.finally(() => this.pendingHostWrites.delete(w));
+    }
+  }
+
+  private onDisconnect(reason: string): void {
+    if (this.leaving || !this.running) return;
+    showNotice(reason || 'Verbindung zum Server getrennt.', 8000);
+    this.leaving = true;
+    // Zurück ins Menü (asynchron, damit Listener sauber enden)
+    setTimeout(() => window.dispatchEvent(new CustomEvent('bc:disconnected')), 0);
   }
 
   async start(): Promise<void> {
@@ -142,8 +212,16 @@ export class Game {
     this.pool = new WorkerPool(workerCount());
     await this.pool.broadcast({ op: 'init', seed: this.meta.seed });
 
-    const store = this.options.bench ? null : this.store;
+    const store = this.options.bench || this.remote ? null : this.store;
     const p = this.simPlayer;
+    if (this.remote) {
+      const j = this.remote.joined;
+      this.hasSave = true;
+      this.spawn = { ...j.position };
+      this.player.creative = j.mode === 'creative';
+      roomInfo.value = { code: j.code, host: j.host, worldName: j.worldName, players: [] };
+      chatLog.value = [];
+    }
     if (store) {
       this.savedKeys = await store.listChunkKeys(this.meta.id);
       const save = await store.loadPlayer(this.meta.id);
@@ -164,7 +242,7 @@ export class Game {
       }
       this.sim.loadItems(await store.loadItems(this.meta.id));
     }
-    if (!this.hasSave) {
+    if (!this.hasSave && !this.remote) {
       const s = this.gen.findSpawn();
       this.spawn = this.options.bench ? { x: 0.5, y: 110, z: 0.5 } : s;
       if (this.options.bench) this.player.body.flying = true;
@@ -187,10 +265,15 @@ export class Game {
         return this.store?.loadChunk(this.meta.id, cx, cz);
       },
       onUnload: (col) => {
-        if (col.modified) this.saveUnloaded(col);
+        if (col.modified && !this.remote) this.saveUnloaded(col);
       },
+      remote: !!this.remote,
     });
     this.applySettings();
+    // Zentrum setzen und vorab angekommene Chunks übernehmen
+    this.streamer.update(this.spawn.x, this.spawn.y, this.spawn.z, 0);
+    for (const f of this.earlyFrames) this.streamer.inject(f.cx, f.cz, f.data);
+    this.earlyFrames = [];
 
     // Pointer-Lock-Wechsel → Pause
     const onLock = (): void => {
@@ -224,17 +307,94 @@ export class Game {
     this.raf = requestAnimationFrame(this.frame);
   }
 
+  /** Diagnose für Tests. */
+  debugStream(): Record<string, unknown> {
+    return {
+      phase: this.phase,
+      spawn: this.spawn,
+      loaded: this.world.columns.size,
+      pending: this.streamer?.pendingMeshes,
+      loading: this.streamer?.loadingCount,
+      meshes: this.renderer.chunks.count,
+      progress: this.streamer?.areaProgress(this.spawn.x, this.spawn.z, 3),
+      rd: this.streamer?.renderDistance,
+      poolBusy: this.pool?.busy,
+    };
+  }
+
   /** Noch zu ladende bzw. zu meshende Arbeit (für Tests/Aufnahmen). */
   get pendingWork(): number {
     return (this.streamer?.pendingMeshes ?? 0) + (this.streamer?.loadingCount ?? 0);
   }
 
   get mode(): 'creative' | 'survival' {
+    if (this.remote) return playerState.value?.mode ?? this.remote.joined.mode;
     return this.simPlayer.mode;
   }
 
-  private onServerEvent(ev: ServerEvent): void {
+  get isDead(): boolean {
+    return this.remote ? !!playerState.value?.dead : this.simPlayer.dead;
+  }
+
+  /** Aktuelle Spielzeit in Ticks. */
+  get time(): number {
+    return this.remote ? this.remoteTime : this.sim.time;
+  }
+
+  get dayLengthTicks(): number {
+    return this.remote ? this.remote.joined.dayLengthTicks : this.sim.dayLengthTicks;
+  }
+
+  sendChat(text: string): void {
+    const t = text.trim();
+    if (t && this.remote) this.remote.transport.sendAny({ t: 'chat', text: t });
+  }
+
+  private onServerEvent(ev: ServerEvent | AnyServerEvent): void {
     switch (ev.t) {
+      case 'blockChanged':
+        if (this.remote) applyBlockChange(this.world, this.light, ev.x, ev.y, ev.z, ev.id);
+        break;
+      case 'time':
+        if (this.remote) this.remoteTime = ev.ticks;
+        break;
+      case 'players':
+        this.players.sync(ev.list);
+        if (roomInfo.value) roomInfo.value = { ...roomInfo.value, players: ev.list.map((p) => p.name) };
+        break;
+      case 'chat':
+        chatLog.value = [...chatLog.value.slice(-49), { from: ev.from, text: ev.text, system: !!ev.system, at: Date.now() }];
+        break;
+      case 'hostState':
+        if (this.store && this.remote?.joined.host) {
+          this.meta.time = ev.time;
+          this.meta.lastPlayed = Date.now();
+          const w = Promise.all([
+            this.store.savePlayer({
+              worldId: this.meta.id,
+              x: ev.position.x,
+              y: ev.position.y,
+              z: ev.position.z,
+              yaw: this.player.yaw,
+              pitch: this.player.pitch,
+              flying: false,
+              selected: selectedSlot.value,
+              state: ev.player,
+            }),
+            this.store.putWorld({ ...this.meta }),
+          ]).then(() => undefined);
+          this.pendingHostWrites.add(w);
+          void w.finally(() => this.pendingHostWrites.delete(w));
+        }
+        break;
+      case 'syncDone':
+        this.syncWaiter?.();
+        break;
+      case 'roomClosed':
+        this.leaving = true;
+        showNotice(ev.reason, 8000);
+        setTimeout(() => window.dispatchEvent(new CustomEvent('bc:disconnected')), 0);
+        break;
       case 'player': {
         playerState.value = ev.state;
         this.player.state = ev.state;
@@ -302,7 +462,8 @@ export class Game {
 
   applySettings(): void {
     const s = settings.value;
-    const rd = this.options.bench ? Math.min(env.VITE_MAX_RENDER_DISTANCE, 8) : s.renderDistance;
+    // Im Multiplayer bestimmt der Server die Sichtweite (sonst entstünden Lücken)
+    const rd = this.options.bench ? Math.min(env.VITE_MAX_RENDER_DISTANCE, 8) : this.remote ? this.remote.joined.viewDistance : s.renderDistance;
     if (this.streamer) this.streamer.renderDistance = rd;
     this.renderer.renderDistance = rd;
     this.renderer.setFov(s.fov);
@@ -345,6 +506,19 @@ export class Game {
     this.transport.send({ t: 'closeWindow' });
   }
 
+  openChat(): void {
+    if (screen.value !== 'playing' || !this.remote) return;
+    this.suppressPause = true;
+    screen.value = 'chat';
+    this.input.unlock();
+  }
+
+  closeChat(): void {
+    if (screen.value !== 'chat') return;
+    screen.value = 'playing';
+    void this.lock(true);
+  }
+
   selectSlot(i: number): void {
     selectedSlot.value = i;
     this.player.selected = i;
@@ -374,7 +548,7 @@ export class Game {
     }
 
     const paused = screen.value === 'paused' || screen.value === 'settings' || screen.value === 'keys';
-    const dead = this.simPlayer.dead;
+    const dead = this.isDead;
     if (!paused) {
       this.acc += dt;
       let steps = 0;
@@ -385,7 +559,8 @@ export class Game {
           this.player.tick(dead);
           this.footsteps(wasGround);
         }
-        this.sim.tick();
+        if (this.remote) this.remoteTime++;
+        else this.sim.tick();
         this.acc -= TICK_SECONDS;
         steps++;
       }
@@ -406,6 +581,7 @@ export class Game {
     }
 
     streamer.update(body.x, body.y, body.z, 4);
+    this.players.update(this.world, this.renderer.sky.state.daylight);
     this.renderer.underwater = body.eyesInWater;
     underwater.value = body.eyesInWater;
     this.renderer.items.update(this.seconds, this.world, this.renderer.sky.state.daylight);
@@ -440,6 +616,11 @@ export class Game {
 
   private enterWorld(): void {
     const body = this.player.body;
+    if (this.remote && !this.remote.joined.host) {
+      // Gäste: freie Stelle am (versetzten) Spawn suchen
+      const y = this.player.findFreeSpot(this.spawn.x, this.spawn.y, this.spawn.z);
+      body.setPosition(this.spawn.x, y, this.spawn.z);
+    }
     if (!this.hasSave) {
       const y = this.player.findFreeSpot(this.spawn.x, this.spawn.y, this.spawn.z);
       if (!this.options.bench) {
@@ -451,7 +632,7 @@ export class Game {
     this.phase = 'playing';
     this.spawnMs = performance.now() - this.startedAt;
     console.info(`[Blockcraft] Spawn bereit nach ${Math.round(this.spawnMs)} ms`);
-    if (this.simPlayer.dead) {
+    if (this.isDead) {
       this.showDeath();
       return;
     }
@@ -477,13 +658,20 @@ export class Game {
       else screen.value = 'paused';
       return;
     }
+    if (this.remote) {
+      tabHeld.value = inp.isCodeDown('Tab');
+      if (inp.wasCodePressed('KeyT') || inp.wasCodePressed('Enter')) {
+        this.openChat();
+        return;
+      }
+    }
     for (let i = 0; i < 9; i++) if (inp.wasCodePressed(`Digit${i + 1}`)) this.selectSlot(i);
     if (inp.wheel !== 0) this.selectSlot((((selectedSlot.value + inp.wheel) % 9) + 9) % 9);
   }
 
   private dayFraction(alpha: number): number {
-    const len = this.sim.dayLengthTicks;
-    return ((((this.sim.time + alpha) % len) + len) % len) / len;
+    const len = this.dayLengthTicks;
+    return ((((this.time + alpha) % len) + len) % len) / len;
   }
 
   private updateFps(dt: number): void {
@@ -505,8 +693,8 @@ export class Game {
     const fz = Math.floor(b.z);
     const l = this.world.getLight(fx, Math.floor(b.y + 0.5), fz);
     const t = this.player.target;
-    const dayTicks = ((this.sim.time % this.sim.dayLengthTicks) + this.sim.dayLengthTicks) % this.sim.dayLengthTicks;
-    const hours = (6 + (dayTicks / this.sim.dayLengthTicks) * 24) % 24;
+    const dayTicks = ((this.time % this.dayLengthTicks) + this.dayLengthTicks) % this.dayLengthTicks;
+    const hours = (6 + (dayTicks / this.dayLengthTicks) * 24) % 24;
     debugInfo.value = {
       fps: Math.round(this.fps),
       frameMs: Math.round(this.frameMs * 10) / 10,
@@ -550,7 +738,8 @@ export class Game {
 
   /** Speichert veränderte Chunks, Spieler, Items und Weltdaten. */
   save(): Promise<void> {
-    if (!this.store || this.options.bench || this.phase !== 'playing') return Promise.resolve();
+    // Im Multiplayer speichert der Server (Rück-Sync an den Host)
+    if (!this.store || this.options.bench || this.remote || this.phase !== 'playing') return Promise.resolve();
     if (this.saving) return this.saving.then(() => this.save());
     const store = this.store;
     const run = async (): Promise<void> => {
@@ -596,7 +785,23 @@ export class Game {
   async quit(): Promise<void> {
     // Offenes Fenster schliessen, damit Items im Crafting-Raster zurück ins Inventar gehen
     this.transport.send({ t: 'closeWindow' });
-    await this.save();
+    if (this.remote) {
+      const t = this.remote.transport;
+      if (t.open && !this.leaving) {
+        this.leaving = true;
+        if (this.remote.joined.host) {
+          // Host: auf den letzten Rück-Sync warten und alles speichern
+          const done = new Promise<void>((resolve) => {
+            this.syncWaiter = resolve;
+            setTimeout(resolve, 8000);
+          });
+          t.sendAny({ t: 'leave' });
+          await done;
+          await Promise.allSettled([...this.pendingHostWrites]);
+        } else t.sendAny({ t: 'leave' });
+      }
+      await Promise.allSettled([...this.pendingHostWrites]);
+    } else await this.save();
     this.dispose();
   }
 
@@ -609,6 +814,8 @@ export class Game {
     this.transport.close();
     this.input.dispose();
     this.sound.dispose();
+    this.players.dispose();
+    roomInfo.value = null;
     this.renderer.dispose();
     this.world.clear();
     playerState.value = null;

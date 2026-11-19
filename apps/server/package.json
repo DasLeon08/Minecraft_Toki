@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Render-Dienst: liefert den Client aus und betreibt den Spielserver (WebSocket)",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.js --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "build": "esbuild src/index.ts src/gen/genWorker.ts --bundle --platform=node --target=node22 --format=esm --outdir=dist --entry-names=[dir]/[name] --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire as __bcRequire}from'module';const require=__bcRequire(import.meta.url);\"",
     "dev": "pnpm build && node --env-file-if-exists=../../.env dist/index.js",
     "typecheck": "tsc -p tsconfig.json"
   },

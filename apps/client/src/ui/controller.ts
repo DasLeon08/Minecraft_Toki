@@ -1,10 +1,21 @@
 /** Verbindet die Menüs mit Speicher und Spielsitzung. */
 import { signal } from '@preact/signals';
-import { getItemByKey, isValidItem, maxStack, seedFromInput, type GameMode } from '@blockcraft/shared';
+import {
+  encodeFrame,
+  Frame,
+  getItemByKey,
+  isValidItem,
+  maxStack,
+  normalizeRoomCode,
+  seedFromInput,
+  TerrainGenerator,
+  type GameMode,
+} from '@blockcraft/shared';
+import { wakeServer, WsTransport } from '../net/WsTransport';
 import { benchMode, testMode } from '../config/env';
-import { Game } from '../game/Game';
+import { Game, type GameOptions, type JoinedInfo } from '../game/Game';
 import { WorldStore, type WorldMeta } from '../storage/WorldStore';
-import { errorText, screen, showNotice } from './state';
+import { chatLog, errorText, mpStatus, playerState, roomInfo, screen, showNotice, windowState } from './state';
 
 export const worlds = signal<WorldMeta[]>([]);
 export const worldSizes = signal<Record<string, number>>({});
@@ -98,11 +109,15 @@ export async function createWorld(name: string, seedText: string, mode: GameMode
 }
 
 export async function playWorld(meta: WorldMeta): Promise<void> {
-  if (!gameContainer) throw new Error('Kein Spielcontainer');
-  if (game) await quitGame(false);
   meta.lastPlayed = Date.now();
   await store?.putWorld(meta);
-  game = new Game(gameContainer, store, meta);
+  await startGame(meta, {});
+}
+
+async function startGame(meta: WorldMeta, options: GameOptions): Promise<void> {
+  if (!gameContainer) throw new Error('Kein Spielcontainer');
+  if (game) await quitGame(false);
+  game = new Game(gameContainer, store, meta, options);
   exposeTestHooks();
   try {
     await game.start();
@@ -112,6 +127,126 @@ export async function playWorld(meta: WorldMeta): Promise<void> {
     screen.value = 'error';
   }
 }
+
+// ---------------------------------------------------------------------------
+// Multiplayer
+// ---------------------------------------------------------------------------
+
+const NAME_KEY = 'bc.mpName';
+
+export function savedPlayerName(): string {
+  try {
+    return localStorage.getItem(NAME_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function rememberName(name: string): void {
+  try {
+    localStorage.setItem(NAME_KEY, name);
+  } catch {
+    // ignorieren
+  }
+}
+
+let mpBusy = false;
+
+async function connect(name: string): Promise<WsTransport> {
+  mpStatus.value = 'Verbinde mit dem Server …';
+  await wakeServer((t) => (mpStatus.value = t));
+  return WsTransport.connect(name);
+}
+
+/** Eigene Welt als Raum für andere öffnen. */
+export async function hostWorld(meta: WorldMeta, name: string): Promise<void> {
+  if (mpBusy) return;
+  mpBusy = true;
+  let t: WsTransport | null = null;
+  try {
+    rememberName(name);
+    t = await connect(name);
+    const save = await store?.loadPlayer(meta.id);
+    const spawn = new TerrainGenerator(meta.seed).findSpawn();
+    t.sendAny({
+      t: 'createRoom',
+      seed: meta.seed,
+      time: meta.time,
+      mode: meta.mode,
+      worldName: meta.name,
+      spawn,
+      player: save?.state,
+      position: save ? { x: save.x, y: save.y, z: save.z } : spawn,
+    });
+    await t.waitFor('roomCreated');
+    // Veränderte Chunks der eigenen Welt hochladen (mit Gegendruck)
+    const keys = store ? [...(await store.listChunkKeys(meta.id))] : [];
+    let n = 0;
+    for (const key of keys) {
+      const cx = Math.floor(key / 0x200000) - 0x100000;
+      const cz = (key % 0x200000) - 0x100000;
+      const data = await store!.loadChunk(meta.id, cx, cz);
+      if (!data) continue;
+      while (t.buffered > 1024 * 1024) await new Promise((r) => setTimeout(r, 30));
+      t.sendBinary(encodeFrame(Frame.Upload, cx, cz, data));
+      n++;
+      if (n % 50 === 0) mpStatus.value = `Welt wird hochgeladen … ${n}/${keys.length}`;
+    }
+    t.sendAny({ t: 'uploadDone' });
+    const joined = (await t.waitFor('joined')) as JoinedInfo;
+    mpStatus.value = '';
+    await startGame(meta, { remote: { transport: t, joined } });
+  } catch (err) {
+    t?.close();
+    mpStatus.value = String(err instanceof Error ? err.message : err);
+  } finally {
+    mpBusy = false;
+  }
+}
+
+/** Einem Raum per Code beitreten. */
+export async function joinRoom(codeInput: string, name: string): Promise<void> {
+  if (mpBusy) return;
+  const code = normalizeRoomCode(codeInput);
+  if (code.length !== 6) {
+    mpStatus.value = 'Der Raumcode hat 6 Zeichen.';
+    return;
+  }
+  mpBusy = true;
+  let t: WsTransport | null = null;
+  try {
+    rememberName(name);
+    t = await connect(name);
+    t.sendAny({ t: 'joinRoom', code });
+    const joined = (await t.waitFor('joined')) as JoinedInfo;
+    mpStatus.value = '';
+    const meta: WorldMeta = {
+      id: `mp_${joined.code}`,
+      name: joined.worldName,
+      seed: joined.seed,
+      seedText: String(joined.seed),
+      mode: joined.mode,
+      createdAt: Date.now(),
+      lastPlayed: Date.now(),
+      time: joined.time,
+      version: 1,
+    };
+    await startGame(meta, { remote: { transport: t, joined } });
+  } catch (err) {
+    t?.close();
+    mpStatus.value = String(err instanceof Error ? err.message : err);
+  } finally {
+    mpBusy = false;
+  }
+}
+
+// Verbindung verloren / Raum geschlossen → zurück ins Mehrspieler-Menü
+window.addEventListener('bc:disconnected', () => {
+  void quitGame(false).then(async () => {
+    await refreshWorlds();
+    screen.value = 'multiplayer';
+  });
+});
 
 async function startBench(seconds: number): Promise<void> {
   if (!gameContainer) return;
@@ -129,7 +264,7 @@ export async function quitGame(toMenu = true): Promise<void> {
   }
   if (toMenu) {
     await refreshWorlds();
-    screen.value = 'worlds';
+    screen.value = g?.remote ? 'multiplayer' : 'worlds';
   }
 }
 
@@ -192,13 +327,40 @@ function exposeTestHooks(): void {
       return game?.world.getBlock(x, y, z) ?? -1;
     },
     setBlock(x: number, y: number, z: number, id: number) {
-      // Test-Hook: direkt über die Simulation (unabhängig vom Spielmodus)
-      game?.sim.setBlock(x, y, z, id);
+      // Test-Hook: lokal direkt über die Simulation; im Multiplayer als Kreativ-Aktion an den Server
+      if (game?.remote) game.transport.send({ t: 'setBlock', seq: 0, x, y, z, id });
+      else game?.sim.setBlock(x, y, z, id);
       return game?.world.getBlock(x, y, z) ?? -1;
     },
     /** Inventar/Status des Spielers (Snapshot). */
     state() {
+      if (game?.remote) return playerState.value;
       return game?.simPlayer.snapshot() ?? null;
+    },
+    room() {
+      return roomInfo.value;
+    },
+    chat() {
+      return chatLog.value;
+    },
+    debugStream() {
+      return game ? game.debugStream() : null;
+    },
+    remotePlayers() {
+      return game?.players.count ?? 0;
+    },
+    host(worldId: string, name: string) {
+      const meta = worlds.value.find((w2) => w2.id === worldId);
+      return meta ? hostWorld(meta, name) : Promise.reject(new Error('unbekannte Welt'));
+    },
+    join(code: string, name: string) {
+      return joinRoom(code, name);
+    },
+    sendChat(text: string) {
+      game?.sendChat(text);
+    },
+    get mpStatus() {
+      return mpStatus.value;
     },
     give(id: number, count: number) {
       if (!isValidItem(id)) throw new Error(`Unbekanntes Item ${id}`);
@@ -212,6 +374,7 @@ function exposeTestHooks(): void {
       game?.transport.send(msg as Parameters<Game['transport']['send']>[0]);
     },
     window() {
+      if (game?.remote) return windowState.value?.slots ?? null;
       return game?.simPlayer.window ? game.simPlayer.window.win.snapshot() : null;
     },
     items() {

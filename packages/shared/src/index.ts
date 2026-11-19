@@ -25,6 +25,7 @@ export * from './sim/PlayerState';
 export * from './sim/water';
 export * from './entity/ItemEntity';
 export * from './sim/protocol';
+export * from './net/rooms';
 export * from './sim/Sim';
 export * from './sim/LocalTransport';
 export * from './textures/paint';

@@ -7,6 +7,9 @@ import type { WorldMeta } from '../storage/WorldStore';
 import {
   createWorld,
   currentGame,
+  hostWorld,
+  joinRoom,
+  savedPlayerName,
   deleteWorld,
   exportWorld,
   formatBytes,
@@ -23,7 +26,11 @@ import { hudIcon } from './icons';
 import { PixelText } from './PixelText';
 import { Hotbar, InventoryScreen } from './Inventory';
 import {
+  chatLog,
   deathMessage,
+  mpStatus,
+  roomInfo,
+  tabHeld,
   debugInfo,
   eatProgress,
   errorText,
@@ -75,7 +82,12 @@ function MainMenu() {
         <Button kind="primary" onClick={() => (screen.value = 'worlds')}>
           Einzelspieler
         </Button>
-        <Button disabled title="Kommt in Phase 3 (Raumcodes über den Render-Server)">
+        <Button
+          onClick={() => {
+            mpStatus.value = '';
+            screen.value = 'multiplayer';
+          }}
+        >
           Mehrspieler
         </Button>
         <Button
@@ -427,6 +439,8 @@ function Hud() {
       {ps && ps.health < 6 && ps.mode === 'survival' && <div class="low-health" />}
       <Stats />
       <Hotbar />
+      {roomInfo.value && screen.value !== 'chat' && <ChatLines all={false} />}
+      <PlayerList />
       {showDebug.value && <DebugOverlay />}
       {playing && !pointerLocked.value && !benchMode && (
         <div class="click-to-play" onClick={() => void currentGame()?.lock()}>
@@ -437,11 +451,39 @@ function Hud() {
   );
 }
 
+function RoomPanel() {
+  const r = roomInfo.value;
+  const [copied, setCopied] = useState(false);
+  if (!r) return null;
+  return (
+    <div class="room-box">
+      <span class="hint">Raumcode{r.host ? ' – gib ihn deinen Freunden' : ''}</span>
+      <div class="room-code">
+        <PixelText text={r.code} px={5} />
+      </div>
+      <Button
+        onClick={() => {
+          void navigator.clipboard
+            ?.writeText(r.code)
+            .then(() => setCopied(true))
+            .catch(() => setCopied(false));
+        }}
+      >
+        {copied ? 'Kopiert!' : 'Code kopieren'}
+      </Button>
+      {r.players.length > 0 && <p class="hint">Im Raum: {r.players.join(', ')}</p>}
+    </div>
+  );
+}
+
 function PauseMenu() {
+  const r = roomInfo.value;
+  const canSwitchMode = !r || r.host;
   return (
     <div class="screen overlay">
       <div class="panel">
         <Title text="Pause" />
+        <RoomPanel />
         <div class="stack">
           <Button kind="primary" onClick={() => currentGame()?.resume()}>
             Weiterspielen
@@ -454,17 +496,157 @@ function PauseMenu() {
           >
             Einstellungen
           </Button>
-          <Button
-            onClick={() => {
-              const g = currentGame();
-              if (g) g.setMode(g.mode === 'creative' ? 'survival' : 'creative');
-            }}
-          >
-            {`Spielmodus: ${playerState.value?.mode === 'creative' ? 'Kreativ' : 'Überleben'}`}
-          </Button>
-          <Button onClick={() => void quitGame(true)}>Speichern &amp; zum Menü</Button>
+          {canSwitchMode && (
+            <Button
+              onClick={() => {
+                const g = currentGame();
+                if (g) g.setMode(g.mode === 'creative' ? 'survival' : 'creative');
+              }}
+            >
+              {`Spielmodus: ${playerState.value?.mode === 'creative' ? 'Kreativ' : 'Überleben'}`}
+            </Button>
+          )}
+          <Button onClick={() => void quitGame(true)}>{r ? (r.host ? 'Raum schliessen & speichern' : 'Raum verlassen') : 'Speichern & zum Menü'}</Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MultiplayerScreen() {
+  const [name, setName] = useState(savedPlayerName());
+  const [code, setCode] = useState('');
+  const [worldId, setWorldId] = useState(worlds.value[0]?.id ?? '');
+  const list = worlds.value;
+  const status = mpStatus.value;
+  const nameOk = name.trim().length > 0;
+  return (
+    <div class="screen panel-screen">
+      <div class="panel wide">
+        <Title text="Mehrspieler" />
+        <label>
+          Dein Name
+          <input value={name} maxLength={20} placeholder="z. B. Wanderer" onInput={(e) => setName((e.target as HTMLInputElement).value)} />
+        </label>
+        <div class="mp-grid">
+          <section class="mp-box">
+            <h3 class="subtitle">
+              <PixelText text="Raum erstellen" px={2} />
+            </h3>
+            <p class="hint">Öffne eine deiner Welten für Freunde. Änderungen werden in deiner Welt gespeichert.</p>
+            <label>
+              Welt
+              <select class="select" value={worldId} onChange={(e) => setWorldId((e.target as HTMLSelectElement).value)}>
+                {list.length === 0 && <option value="">Keine Welt – erstelle zuerst eine im Einzelspieler</option>}
+                {list.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              kind="primary"
+              disabled={!nameOk || !worldId}
+              onClick={() => {
+                const meta = list.find((w) => w.id === worldId);
+                if (meta) void hostWorld(meta, name.trim());
+              }}
+            >
+              Raum erstellen
+            </Button>
+          </section>
+          <section class="mp-box">
+            <h3 class="subtitle">
+              <PixelText text="Beitreten" px={2} />
+            </h3>
+            <p class="hint">Gib den 6-stelligen Raumcode ein, den du bekommen hast.</p>
+            <label>
+              Raumcode
+              <input
+                class="code-input"
+                value={code}
+                maxLength={8}
+                placeholder="z. B. K7QX2M"
+                onInput={(e) => setCode((e.target as HTMLInputElement).value.toUpperCase())}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && nameOk) void joinRoom(code, name.trim());
+                }}
+              />
+            </label>
+            <Button kind="primary" disabled={!nameOk || code.trim().length < 6} onClick={() => void joinRoom(code, name.trim())}>
+              Beitreten
+            </Button>
+          </section>
+        </div>
+        {status && <p class="mp-status">{status}</p>}
+        <div class="row">
+          <Button onClick={() => (screen.value = 'menu')}>Zurück</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatLines({ all }: { all: boolean }) {
+  const now = Date.now();
+  const lines = chatLog.value.filter((l) => all || now - l.at < 10_000).slice(all ? -12 : -6);
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (all) return;
+    const id = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [all]);
+  if (lines.length === 0) return null;
+  return (
+    <div class={`chat-lines ${all ? 'all' : ''}`}>
+      {lines.map((l, i) => (
+        <div key={`${l.at}-${i}`} class={l.system ? 'sys' : ''}>
+          {l.system ? l.text : `<${l.from}> ${l.text}`}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChatInput() {
+  const [text, setText] = useState('');
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+  return (
+    <div class="chat-input-wrap">
+      <ChatLines all />
+      <input
+        ref={ref}
+        class="chat-input"
+        value={text}
+        maxLength={200}
+        placeholder="Nachricht … (Enter senden, Esc schliessen)"
+        onInput={(e) => setText((e.target as HTMLInputElement).value)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') {
+            currentGame()?.sendChat(text);
+            setText('');
+            currentGame()?.closeChat();
+          } else if (e.key === 'Escape') currentGame()?.closeChat();
+        }}
+      />
+    </div>
+  );
+}
+
+function PlayerList() {
+  const r = roomInfo.value;
+  if (!r || !tabHeld.value) return null;
+  return (
+    <div class="player-list">
+      <PixelText text={`Raum ${r.code}`} px={2} />
+      {(r.players.length ? r.players : ['nur du']).map((n) => (
+        <div key={n}>{n}</div>
+      ))}
     </div>
   );
 }
@@ -558,7 +740,12 @@ export function App() {
   }, []);
   const s = screen.value;
   const inGame =
-    s === 'playing' || s === 'paused' || s === 'inventory' || s === 'dead' || ((s === 'settings' || s === 'keys') && settingsReturn.value === 'paused');
+    s === 'playing' ||
+    s === 'paused' ||
+    s === 'inventory' ||
+    s === 'dead' ||
+    s === 'chat' ||
+    ((s === 'settings' || s === 'keys') && settingsReturn.value === 'paused');
   return (
     <div class={`app ${inGame ? 'in-game' : ''}`}>
       <div ref={ref} class="game-container" />
@@ -574,6 +761,8 @@ export function App() {
       {s === 'inventory' && <InventoryScreen />}
       {s === 'dead' && <DeathScreen />}
       {s === 'keys' && <KeysScreen />}
+      {s === 'multiplayer' && <MultiplayerScreen />}
+      {s === 'chat' && <ChatInput />}
       {s === 'error' && <ErrorScreen />}
       <Notice />
     </div>

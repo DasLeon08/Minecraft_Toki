@@ -54,20 +54,16 @@ describe('Server', () => {
     await s2.close();
   });
 
-  it('WebSocket-Echo funktioniert', async () => {
+  it('WebSocket begrüsst mit Protokollversion', async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    const messages: string[] = [];
-    await new Promise<void>((resolve, reject) => {
-      ws.on('message', (d) => {
-        messages.push(d.toString());
-        if (messages.length === 1) ws.send('ping-123');
-        if (messages.length === 2) resolve();
-      });
+    const first = await new Promise<string>((resolve, reject) => {
+      ws.on('message', (d) => resolve(d.toString()));
       ws.on('error', reject);
     });
     ws.close();
-    expect(JSON.parse(messages[0]).t).toBe('hello');
-    expect(messages[1]).toBe('ping-123');
+    const hello = JSON.parse(first);
+    expect(hello.t).toBe('hello');
+    expect(hello.protocol).toBe(1);
   });
 
   it('Origin-Prüfung', () => {

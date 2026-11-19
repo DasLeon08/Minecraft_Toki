@@ -1,18 +1,22 @@
 /**
- * HTTP + WebSocket. Phase 0/1: Health-Check, statischer Client, WebSocket-Echo
- * (Verbindungstest). Phase 3: Räume mit Raumcode und autoritativer Simulation.
+ * HTTP + WebSocket: Health-Check, optional statischer Client und Multiplayer-Räume
+ * mit Raumcode und autoritativer Simulation.
  */
 import { createServer, type Server } from 'node:http';
 import { resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { GAME_NAME, GAME_VERSION } from '@blockcraft/shared';
+import { GAME_NAME, GAME_VERSION, TICKS_PER_SECOND } from '@blockcraft/shared';
 import type { ServerConfig } from './config';
+import { GenPool } from './gen/GenPool';
 import type { Logger } from './log';
+import { handleConnection } from './rooms/connection';
+import { RoomManager } from './rooms/RoomManager';
 import { createStaticHandler } from './static';
 
 export interface RunningServer {
   http: Server;
   wss: WebSocketServer;
+  rooms: RoomManager;
   port: number;
   close(): Promise<void>;
 }
@@ -32,6 +36,8 @@ export function originAllowed(origin: string | undefined, host: string | undefin
 export function startServer(config: ServerConfig, log: Logger, rootDir = process.cwd()): Promise<RunningServer> {
   const serveStatic = createStaticHandler(resolve(rootDir, config.CLIENT_DIST_DIR));
   const startedAt = Date.now();
+  const gen = new GenPool(config.GEN_WORKERS);
+  const rooms = new RoomManager(config, gen, log);
 
   const http = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
@@ -44,6 +50,7 @@ export function startServer(config: ServerConfig, log: Logger, rootDir = process
           version: GAME_VERSION,
           uptime: Math.round((Date.now() - startedAt) / 1000),
           connections: wss.clients.size,
+          ...rooms.stats(),
         }),
       );
       return;
@@ -77,13 +84,11 @@ export function startServer(config: ServerConfig, log: Logger, rootDir = process
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
 
-  wss.on('connection', (ws: WebSocket) => {
-    log.debug('WebSocket verbunden');
-    ws.send(JSON.stringify({ t: 'hello', name: GAME_NAME, version: GAME_VERSION }));
-    ws.on('message', (data, isBinary) => {
-      // Phase 0: Echo als Verbindungstest. Phase 3 ersetzt dies durch das Raumprotokoll.
-      ws.send(data, { binary: isBinary });
-    });
+  wss.on('connection', (ws: WebSocket, req: import('node:http').IncomingMessage) => {
+    const fwd = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
+    const ip = fwd || req.socket.remoteAddress || 'unbekannt';
+    log.debug('WebSocket verbunden', ip);
+    handleConnection(ws, ip, rooms, log, config.DAY_LENGTH_SECONDS * TICKS_PER_SECOND);
   });
 
   return new Promise((resolvePromise) => {
@@ -94,9 +99,12 @@ export function startServer(config: ServerConfig, log: Logger, rootDir = process
       resolvePromise({
         http,
         wss,
+        rooms,
         port,
         close: () =>
           new Promise<void>((r) => {
+            rooms.close();
+            void gen.close();
             for (const c of wss.clients) c.terminate();
             wss.close();
             http.close(() => r());

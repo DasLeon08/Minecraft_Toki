@@ -1,5 +1,10 @@
 import { keybindings, type Action } from './keybindings';
 
+function isTextField(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement)) return false;
+  return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable;
+}
+
 /**
  * Sammelt Tastatur- und Mauseingaben. Mausbewegung wird nur bei aktivem
  * Pointer Lock ausgewertet.
@@ -21,13 +26,19 @@ export class Input {
       this.cleanup.push(() => target.removeEventListener(type, fn as EventListener, opts));
     };
     on(document, 'keydown', (e) => {
+      // Tippen in Textfeldern (Chat, Namen, Suche) steuert nicht das Spiel
+      if (isTextField(e.target)) return;
       if (e.repeat) return;
       this.down.add(e.code);
       this.pressedOnce.add(e.code);
-      if (this.locked && (e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'F3' || e.ctrlKey)) e.preventDefault();
+      if (this.locked && (e.code === 'Space' || e.code === 'Tab' || e.code.startsWith('Arrow') || e.code === 'F3' || e.ctrlKey)) e.preventDefault();
     });
     on(document, 'keyup', (e) => {
       this.down.delete(e.code);
+    });
+    // Beim Fokus auf ein Textfeld alle gehaltenen Tasten loslassen (sonst läuft die Figur weiter)
+    on(document, 'focusin', (e) => {
+      if (isTextField(e.target)) this.down.clear();
     });
     on(window, 'blur', () => {
       this.down.clear();
@@ -76,6 +87,10 @@ export class Input {
   /** Wurde die Taste seit dem letzten `endFrame` gedrückt? */
   wasPressed(action: Action): boolean {
     return keybindings.value[action].some((c) => this.pressedOnce.has(c));
+  }
+
+  isCodeDown(code: string): boolean {
+    return this.down.has(code);
   }
 
   wasCodePressed(code: string): boolean {

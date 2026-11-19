@@ -12,6 +12,10 @@ export const serverSchema = {
   ROOM_IDLE_TIMEOUT_MIN: { type: 'int', default: 10, min: 1, max: 1440 },
   JOIN_RATE_LIMIT_PER_MIN: { type: 'int', default: 30, min: 1, max: 10000 },
   LOG_LEVEL: { type: 'string', default: 'info', oneOf: ['debug', 'info', 'warn', 'error'] },
+  /** Generierungs-Threads (0 = automatisch: Kerne − 1, max. 4). */
+  GEN_WORKERS: { type: 'int', default: 0, min: 0, max: 16 },
+  /** Dauer eines Tag-Nacht-Zyklus in Sekunden (wie VITE_DAY_LENGTH_SECONDS im Client). */
+  DAY_LENGTH_SECONDS: { type: 'int', default: 1200, min: 60, max: 86400 },
 } satisfies EnvSchema;
 
 export type ServerConfig = ReturnType<typeof loadConfig>;

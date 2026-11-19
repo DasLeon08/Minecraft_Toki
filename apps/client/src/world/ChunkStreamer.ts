@@ -28,6 +28,8 @@ export interface StreamerOptions {
   loadSaved(cx: number, cz: number): Promise<Uint8Array | undefined>;
   /** Wird vor dem Entladen jeder Spalte aufgerufen (speichert, falls verändert). */
   onUnload(col: ChunkColumn): void;
+  /** Multiplayer: Chunks kommen vom Server (`inject`), es wird nicht selbst generiert. */
+  remote?: boolean;
 }
 
 type MeshResult = Extract<WorkerResponse, { op: 'mesh' }>;
@@ -141,7 +143,41 @@ export class ChunkStreamer {
     for (let sy = 0; sy < 16; sy++) this.dirty.delete(key * 16 + sy);
   }
 
+  /** Multiplayer: vom Server gelieferte Spalte übernehmen (ersetzt eine vorhandene). */
+  inject(cx: number, cz: number, data: Uint8Array): void {
+    if (this.disposed) return;
+    const key = columnKey(cx, cz);
+    let decoded: ReturnType<typeof decodeColumnFull>;
+    try {
+      decoded = decodeColumnFull(data);
+    } catch (err) {
+      console.error('Ungültige Chunk-Daten vom Server', cx, cz, err);
+      return;
+    }
+    this.loading.add(key);
+    if (decoded.blockEntities.length) this.pendingEntities.set(key, decoded.blockEntities);
+    const blocks = decoded.blocks;
+    this.pool
+      .run({ op: 'light', cx, cz, blocks }, [blocks.buffer])
+      .then((res) => {
+        this.loading.delete(key);
+        if (this.disposed || res.op !== 'column') return;
+        const existing = this.world.getColumn(cx, cz);
+        if (existing) {
+          // Neuere Server-Daten ersetzen die vorhandene Spalte
+          this.meshes.removeColumn(key);
+          this.world.removeColumn(cx, cz);
+          this.light.invalidateCache();
+          for (let dz = -1; dz <= 1; dz++)
+            for (let dx = -1; dx <= 1; dx++) this.meshable.delete(columnKey(cx + dx, cz + dz));
+        }
+        this.onColumnLoaded(res.cx, res.cz, res.blocks, res.light);
+      })
+      .catch(() => this.loading.delete(key));
+  }
+
   private scheduleLoads(): void {
+    if (this.opts.remote) return;
     const max = this.pool.size + 1;
     for (const key of this.wanted) {
       if (this.loading.size >= max) break;
@@ -172,7 +208,8 @@ export class ChunkStreamer {
   }
 
   private onColumnLoaded(cx: number, cz: number, blocks: Uint16Array, light: Uint8Array): void {
-    if (!this.inLoadRadius(cx - this.centerX, cz - this.centerZ)) return;
+    // Vor dem ersten Zentrieren nichts verwerfen (im Multiplayer schickt der Server sofort)
+    if (!Number.isNaN(this.centerX) && !this.inLoadRadius(cx - this.centerX, cz - this.centerZ)) return;
     if (this.world.hasColumn(cx, cz)) return;
     const col = ChunkColumn.fromFlat(cx, cz, blocks, light);
     const key0 = columnKey(cx, cz);
