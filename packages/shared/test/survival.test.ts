@@ -366,3 +366,40 @@ describe('Speicherformat', () => {
     expect(d.blockEntities[0].items[0]).toEqual(S(SAND, 9));
   });
 });
+
+describe('Speichern mit offenem Fenster', () => {
+  it('Items im Crafting-Raster und am Cursor gehen beim Speichern nicht verloren', () => {
+    const { sim, p } = survivalWorld();
+    p.inventory.main.slots[0] = S(OAK_LOG, 3);
+    p.inventory.main.slots[1] = S(STONE, 5);
+    sim.handle({ t: 'openInventory' });
+    const win = p.window!.win;
+    const logIdx = win.refs.findIndex((r) => r.container === p.inventory.main && r.index === 0);
+    const stoneIdx = win.refs.findIndex((r) => r.container === p.inventory.main && r.index === 1);
+    sim.handle({ t: 'windowClick', slot: logIdx, button: 0, shift: false });
+    sim.handle({ t: 'windowClick', slot: 1, button: 0, shift: false }); // Stämme ins Raster
+    sim.handle({ t: 'windowClick', slot: stoneIdx, button: 0, shift: false }); // Stein am Cursor
+    const saved = p.persist();
+    const total = (id: number) => saved.main.reduce((n, s) => n + (s && s.id === id ? s.count : 0), 0);
+    expect(total(OAK_LOG)).toBe(3);
+    expect(total(STONE)).toBe(5);
+  });
+
+  it('Tod mit offenem Fenster: Raster-Items fallen mit heraus, Fenster schliesst', () => {
+    const { sim, p } = survivalWorld();
+    p.inventory.main.slots[0] = S(OAK_LOG, 2);
+    sim.handle({ t: 'openInventory' });
+    const logIdx = p.window!.win.refs.findIndex((r) => r.container === p.inventory.main && r.index === 0);
+    sim.handle({ t: 'windowClick', slot: logIdx, button: 0, shift: false });
+    sim.handle({ t: 'windowClick', slot: 2, button: 0, shift: false });
+    let closed = false;
+    sim.onEvent((e) => {
+      if (e.t === 'window' && e.window === null) closed = true;
+    });
+    p.damage(100, 'void');
+    sim.tick();
+    expect(p.dead).toBe(true);
+    expect(closed).toBe(true);
+    expect([...sim.items.values()].reduce((n, e) => n + (e.item.id === OAK_LOG ? e.item.count : 0), 0)).toBe(2);
+  });
+});

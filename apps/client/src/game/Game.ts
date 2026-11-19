@@ -250,7 +250,7 @@ export class Game {
           this.input.unlock();
         } else if (!ev.window && screen.value === 'inventory') {
           screen.value = 'playing';
-          void this.lock();
+          void this.lock(true);
         }
         break;
       case 'items':
@@ -313,9 +313,10 @@ export class Game {
     showDebug.value = s.showFps || showDebug.value;
   }
 
-  async lock(): Promise<void> {
+  /** `quiet`: kein Hinweis bei Misserfolg (z. B. automatischer Versuch ohne Nutzerklick). */
+  async lock(quiet = false): Promise<void> {
     const ok = await this.input.lock();
-    if (!ok) showNotice('Maus konnte nicht eingefangen werden. Klicke ins Spielfeld (im iframe wird «allow=pointer-lock» benötigt).');
+    if (!ok && !quiet) showNotice('Maus konnte nicht eingefangen werden. Klicke ins Spielfeld (im iframe wird «allow=pointer-lock» benötigt).');
   }
 
   resume(): void {
@@ -458,7 +459,7 @@ export class Game {
     if (this.options.bench) {
       this.benchStart = this.seconds;
       showNotice(`Benchmark läuft (${this.options.bench.seconds} s) …`, 4000);
-    } else void this.lock();
+    } else void this.lock(true);
   }
 
   private handleHotkeys(): void {

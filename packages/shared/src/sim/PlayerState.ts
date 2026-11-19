@@ -1,6 +1,6 @@
 /** Spielerzustand in der Simulation: Inventar, Leben, Hunger, Luft. */
 import { getItem, maxDurability } from '../registry/items';
-import { PlayerInventory, type Slot, type Window, Container } from './inventory';
+import { addToSlots, cloneStack, PlayerInventory, type Slot, type Window, Container } from './inventory';
 
 export type GameMode = 'creative' | 'survival';
 export type DamageCause = 'fall' | 'drown' | 'starve' | 'void' | 'generic';
@@ -70,6 +70,8 @@ export class PlayerState {
   /** Zustand hat sich geändert → Snapshot senden. */
   dirty = true;
   lastDeath: DamageCause | null = null;
+  /** Die Sim hat diesen Tod bereits behandelt (Drops, Fenster, Meldung). */
+  deathHandled = false;
 
   constructor(
     readonly id: number,
@@ -214,6 +216,7 @@ export class PlayerState {
     this.exhaustion = 0;
     this.air = MAX_AIR;
     this.dead = false;
+    this.deathHandled = false;
     this.lastDeath = null;
     this.hurtCooldown = 20;
     this.dirty = true;
@@ -236,8 +239,13 @@ export class PlayerState {
   }
 
   persist(): PlayerPersist {
+    // Items im offenen Crafting-Raster und am Mauszeiger gehören dem Spieler –
+    // sie werden beim Speichern ins Inventar gerechnet, damit nichts verloren geht.
+    const main = this.inventory.main.toJSON();
+    const pending: Slot[] = [cloneStack(this.cursor), ...(this.window?.grid?.slots.map(cloneStack) ?? [])];
+    for (const s of pending) if (s) addToSlots(main, s);
     return {
-      main: this.inventory.main.toJSON(),
+      main,
       armor: this.inventory.armor.toJSON(),
       selected: this.selected,
       health: this.health,
@@ -258,6 +266,8 @@ export class PlayerState {
     this.air = p.air ?? MAX_AIR;
     this.spawn = p.spawn ?? null;
     this.dead = this.health <= 0;
+    // Ein als tot gespeicherter Spieler wurde bereits behandelt (Items lagen schon in der Welt)
+    this.deathHandled = this.dead;
     this.dirty = true;
   }
 }

@@ -20,6 +20,7 @@ import {
   worldSizes,
 } from './controller';
 import { hudIcon } from './icons';
+import { PixelText } from './PixelText';
 import { Hotbar, InventoryScreen } from './Inventory';
 import {
   deathMessage,
@@ -39,20 +40,26 @@ import {
 
 function Logo() {
   return (
-    <h1 class="logo" aria-label={GAME_NAME}>
-      {GAME_NAME.split('').map((ch, i) => (
-        <span key={i} style={{ '--i': i } as Record<string, number>}>
-          {ch}
-        </span>
-      ))}
+    <h1 class="logo">
+      <PixelText text={GAME_NAME} px={8} />
     </h1>
   );
 }
 
+/** Überschrift in der Pixel-Schrift. */
+export function Title({ text }: { text: string }) {
+  return (
+    <h2 class="title">
+      <PixelText text={text} px={3} />
+    </h2>
+  );
+}
+
 function Button(props: { onClick?: () => void; disabled?: boolean; children: preact.ComponentChildren; kind?: 'primary' | 'danger'; title?: string }) {
+  const label = typeof props.children === 'string' ? <PixelText text={props.children} px={2} /> : props.children;
   return (
     <button class={`btn ${props.kind ?? ''}`} onClick={props.onClick} disabled={props.disabled} title={props.title}>
-      {props.children}
+      {label}
     </button>
   );
 }
@@ -61,13 +68,15 @@ function MainMenu() {
   return (
     <div class="screen menu">
       <Logo />
-      <p class="tagline">Bauen. Graben. Entdecken.</p>
+      <p class="tagline">
+        <PixelText text="Bauen · Graben · Überleben" px={2} />
+      </p>
       <div class="stack">
         <Button kind="primary" onClick={() => (screen.value = 'worlds')}>
           Einzelspieler
         </Button>
         <Button disabled title="Kommt in Phase 3 (Raumcodes über den Render-Server)">
-          Mehrspieler <small>(bald)</small>
+          Mehrspieler
         </Button>
         <Button
           onClick={() => {
@@ -100,7 +109,7 @@ function WorldList() {
   return (
     <div class="screen panel-screen">
       <div class="panel wide">
-        <h2>Welt auswählen</h2>
+        <Title text="Welt auswählen" />
         <div class="world-list" role="listbox">
           {list.length === 0 && <p class="empty">Noch keine Welten. Erstelle deine erste!</p>}
           {list.map((w) => (
@@ -202,7 +211,7 @@ function CreateWorld() {
           void createWorld(name, seed, mode);
         }}
       >
-        <h2>Neue Welt erstellen</h2>
+        <Title text="Neue Welt erstellen" />
         <label>
           Name der Welt
           <input value={name} maxLength={40} onInput={(e) => setName((e.target as HTMLInputElement).value)} />
@@ -222,7 +231,7 @@ function CreateWorld() {
         </fieldset>
         <div class="row">
           <button class="btn primary" type="submit">
-            Welt erstellen
+            <PixelText text="Welt erstellen" px={2} />
           </button>
           <Button onClick={() => (screen.value = 'worlds')}>Abbrechen</Button>
         </div>
@@ -254,7 +263,7 @@ function SettingsScreen() {
   return (
     <div class="screen panel-screen">
       <div class="panel">
-        <h2>Einstellungen</h2>
+        <Title text="Einstellungen" />
         <Slider
           label="Sichtweite"
           value={s.renderDistance}
@@ -432,7 +441,7 @@ function PauseMenu() {
   return (
     <div class="screen overlay">
       <div class="panel">
-        <h2>Pause</h2>
+        <Title text="Pause" />
         <div class="stack">
           <Button kind="primary" onClick={() => currentGame()?.resume()}>
             Weiterspielen
@@ -451,7 +460,7 @@ function PauseMenu() {
               if (g) g.setMode(g.mode === 'creative' ? 'survival' : 'creative');
             }}
           >
-            Spielmodus: {playerState.value?.mode === 'creative' ? 'Kreativ' : 'Überleben'}
+            {`Spielmodus: ${playerState.value?.mode === 'creative' ? 'Kreativ' : 'Überleben'}`}
           </Button>
           <Button onClick={() => void quitGame(true)}>Speichern &amp; zum Menü</Button>
         </div>
@@ -464,7 +473,7 @@ function DeathScreen() {
   return (
     <div class="screen overlay death">
       <div class="panel">
-        <h2>Du bist gestorben</h2>
+        <Title text="Du bist gestorben" />
         <p>{deathMessage.value}</p>
         <p class="hint">Deine Items liegen dort, wo du gestorben bist.</p>
         <div class="stack">
@@ -497,7 +506,7 @@ function KeysScreen() {
   return (
     <div class="screen panel-screen">
       <div class="panel wide">
-        <h2>Tastenbelegung</h2>
+        <Title text="Tastenbelegung" />
         <div class="keys">
           {(Object.keys(ACTION_LABELS) as Action[]).map((a) => (
             <div class="key-row" key={a}>
@@ -530,7 +539,7 @@ function ErrorScreen() {
   return (
     <div class="screen panel-screen">
       <div class="panel">
-        <h2>Hoppla</h2>
+        <Title text="Hoppla" />
         <p>{errorText.value}</p>
         <Button onClick={() => location.reload()}>Neu laden</Button>
       </div>

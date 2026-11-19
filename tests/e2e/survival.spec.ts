@@ -244,6 +244,6 @@ test('Tod durch Fallschaden: Items fallen heraus, Wiederbeleben', async ({ page 
   await expect(page.locator('.death')).toContainText('zu tief gefallen');
   expect(await page.evaluate(() => window.__bc.items().some((e: any) => e.item.id === 10))).toBe(true);
   expect(await count(page, OAK_PLANKS)).toBe(0);
-  await page.click('text=Wiederbeleben');
+  await page.locator('button', { hasText: 'Wiederbeleben' }).click();
   await page.waitForFunction(() => window.__bc.state().health === 20 && !window.__bc.state().dead);
 });

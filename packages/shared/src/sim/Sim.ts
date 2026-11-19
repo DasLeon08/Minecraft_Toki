@@ -609,8 +609,9 @@ export class Sim {
     this.tickFurnaces();
     this.tickItems();
     for (const p of this.players.values()) {
-      const cause = p.tickSurvival();
-      if (cause) this.onDeath(p);
+      p.tickSurvival();
+      // Jeder Tod wird genau einmal behandelt, egal woher der Schaden kam
+      if (p.dead && !p.deathHandled) this.onDeath(p);
       if (p.window?.win.kind === 'furnace') this.sendWindow(p);
       if (p.dirty) {
         p.dirty = false;
@@ -624,6 +625,8 @@ export class Sim {
   }
 
   private onDeath(p: PlayerState): void {
+    if (p.deathHandled) return;
+    p.deathHandled = true;
     this.closeWindow(p);
     // Inventar fällt heraus
     for (const c of [p.inventory.main, p.inventory.armor]) {

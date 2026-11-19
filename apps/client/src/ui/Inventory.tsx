@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { CATALOG_ITEMS, getItem, maxDurability, SMELT_TICKS, TIER_NAMES, type Slot, type WindowSnapshot } from '@blockcraft/shared';
 import { currentGame } from './controller';
 import { itemIcon } from './icons';
+import { PixelText } from './PixelText';
 import { playerState, selectedSlot, textureVersion, windowState } from './state';
 
 function Durability({ stack }: { stack: NonNullable<Slot> }) {
@@ -269,7 +270,9 @@ export function InventoryScreen() {
       onContextMenu={(e) => e.preventDefault()}
     >
       <div class={`panel window win-${w.kind} ${creative ? 'creative' : ''}`}>
-        <h2>{creative ? 'Kreativ-Inventar' : TITLES[w.kind]}</h2>
+        <h2 class="title">
+          <PixelText text={creative ? 'Kreativ-Inventar' : TITLES[w.kind]} px={3} />
+        </h2>
         {creative ? (
           <>
             <CreativeCatalog onHover={(stack) => setHover({ index: null, stack })} />
